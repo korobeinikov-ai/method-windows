@@ -210,6 +210,12 @@ check 0 "цель: в той папке .env закрыт — cd папка && g
 check 0 "цель: PowerShell, полный путь с обратными слэшами понят — проходит" be "cd '$(native "$T/proj")'; git add -A" "$T" PreToolUse PowerShell
 check 0 "цель: описание коммита @'…'@ с апострофом не мешает" hk "$(printf "cd proj; git commit -m @'\nit's ok\n'@")" "$T" PowerShell
 check 0 "цель: перенос строки через обратную кавычку в PowerShell не мешает" hk "$(printf 'git -C `\n  proj add -A')" "$T" PowerShell
+# чужое репо с «фильтром» в настройках: сторож его не запускает (git status запустил бы)
+T=$(mkrepo); M="$ROOTTMP/lovushka-metka"
+echo '*.txt filter=lovushka' > "$T/.gitattributes"; G "$T" config filter.lovushka.clean "touch '$M'; cat"
+echo a > "$T/a.txt"; G "$T" add a.txt .gitattributes; G "$T" commit -qm a; rm -f "$M"; echo b > "$T/a.txt"
+check 0 "чужое репо с фильтром: проверка проходит" be 'git add a.txt' "$T"
+[ ! -e "$M" ] && ok "фильтр из настроек чужого репо сторож не запускает" || bad "сторож запустил фильтр чужого репо"
 
 echo "== Охрана: имя git в любом регистре, git только по полному пути, сбой git"
 T=$(mkrepo); echo "KEY=1" > "$T/.env"

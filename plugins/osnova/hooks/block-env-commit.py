@@ -88,11 +88,12 @@ class GitUnavailable(Exception):
 
 
 def git_cmd(project=None):
-    """git по полному пути и без того, что его настройки в чужом репо могут исполнить."""
+    """git по полному пути и без того, что его настройки в чужом репо могут исполнить (и только команды, которые
+    не читают файлы: status запустил бы фильтры из настроек репо, log — проверку подписи)."""
     exe = gitfind.find_git(project)
     if not exe:
         raise GitUnavailable("программа git не найдена в обычных местах")
-    return [exe, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
+    return [exe, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "log.showSignature=false"]
 
 
 def fix_cwd(path, win=os.name == "nt"):
@@ -352,13 +353,6 @@ def repos(cmd, cwd, ps=False):
     return list(seen.values()), sure, unready
 
 
-def porcelain_path(line: str) -> str:
-    p = line[3:]
-    if " -> " in p:
-        p = p.split(" -> ")[-1]
-    return p.strip().strip('"')
-
-
 def secrets(args, cwd):
     return {p for p in git_lines(args, cwd) if is_secret_env(p)}
 
@@ -444,8 +438,7 @@ def check(cmd, root, opts):
     """Что не так с .env в одном репозитории перед записью в git: [описание]."""
     ok, bad = public_ok(root, opts)
     tracked = secrets([*opts, "ls-files", "--full-name"], root) - ok
-    unignored = {porcelain_path(ln) for ln in git_lines([*opts, "status", "--porcelain", "--untracked-files=all"], root)
-                 if ln.startswith("??") and is_secret_env(porcelain_path(ln))} - ok
+    unignored = secrets([*opts, "ls-files", "--full-name", "--others", "--exclude-standard"], root) - ok
     staged = secrets([*opts, "diff", "--cached", "--name-only"], root) - ok
     risky = looks_forced(cmd) or "update-index" in cmd
     ignored = (secrets([*opts, "ls-files", "--full-name", "--others", "--ignored", "--exclude-standard"], root) - ok
