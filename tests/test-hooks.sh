@@ -184,6 +184,33 @@ echo ".env" > "$T/.gitignore"
 check 2 "PowerShell: git add -f при закрытом .env блокируется" be 'git add -f .' "$T" PreToolUse PowerShell
 check 0 "PowerShell: обычная команда не мешает" be 'Get-ChildItem' "$T" PreToolUse PowerShell
 
+echo "== block-env-commit: git пишет не в папку сеанса (cd, -C, --git-dir, --work-tree, Set-Location)"
+# hk <команда> <папка> [инструмент] — хук до команды; JSON собирает Python (J не экранирует переносы строк)
+hk() { local json; json=$(HK_CMD="$1" HK_DIR="$2" HK_TOOL="${3:-Bash}" PYX -c 'import json, os; print(json.dumps({
+  "hook_event_name": "PreToolUse", "tool_name": os.environ["HK_TOOL"], "tool_input": {"command": os.environ["HK_CMD"]},
+  "cwd": os.environ["HK_DIR"]}))' | crlf); run block-env-commit.py "$json" "$2"; }
+# why <часть текста> <описание> <команда> <папка> [инструмент] — блок именно по этой причине, а не по соседней
+why() { local err got; err=$(hk "$3" "$4" "${5:-Bash}" 2>&1 >/dev/null); got=$?
+        [ "$got" -eq 2 ] && [[ "$err" == *"$1"* ]] && ok "$2" || bad "$2 (код $got)"; }
+E="не закрыты .gitignore"; U="не понял, в какой папке"; N="репозитория ещё нет"
+T=$(mk); mkdir "$T/proj"; G "$T/proj" init -q; echo "KEY=1" > "$T/proj/.env"
+why "$E" "цель: git -C папка add — проверяется та папка, не папка сеанса" 'git -C proj add .env' "$T"
+why "$E" "цель: cd папка && git add — тоже" 'cd proj && git add .' "$T"
+why "$E" "цель: --git-dir= и --work-tree= — тоже" 'git --git-dir=proj/.git --work-tree=proj add .env' "$T"
+why "$E" "цель: Git Bash, путь вида /c/... в cd — тоже" "cd '$(posix "$T/proj")' && git add ." "$T"
+why "$E" "цель: PowerShell, Set-Location папка — тоже" 'Set-Location proj; git add -A' "$T" PowerShell
+why "$E" "цель: PowerShell, полный путь с обратными слэшами — тоже" "cd '$(native "$T/proj")'; & git.exe add -A" "$T" PowerShell
+why "$E" "цель: powershell -Command из Git Bash — тоже" 'powershell.exe -NoProfile -Command "cd proj; git add ."' "$T"
+why "$E" "цель: комментарий в конце строки не съедает следующий cd" "$(printf 'git status # check\ncd proj\ngit add .')" "$T" PowerShell
+why "$U" 'цель: путь через переменную ($env:P) — не узнать, блок' 'git -C $env:P add .' "$T" PowerShell
+why "$U" 'цель: $env:GIT_DIR — не узнать, блок' '$env:GIT_DIR = "proj/.git"; git add .env' "$T" PowerShell
+why "$N" "цель: git add туда, где репозитория до команды нет (git init там же), — блок" 'cd newp; git init; git add .' "$T" PowerShell
+echo ".env" > "$T/proj/.gitignore"
+check 0 "цель: в той папке .env закрыт — cd папка && git add проходит" be 'cd proj && git add . && git commit -m "cd x; ok"' "$T"
+check 0 "цель: PowerShell, полный путь с обратными слэшами понят — проходит" be "cd '$(native "$T/proj")'; git add -A" "$T" PreToolUse PowerShell
+check 0 "цель: описание коммита @'…'@ с апострофом не мешает" hk "$(printf "cd proj; git commit -m @'\nit's ok\n'@")" "$T" PowerShell
+check 0 "цель: перенос строки через обратную кавычку в PowerShell не мешает" hk "$(printf 'git -C `\n  proj add -A')" "$T" PowerShell
+
 echo "== Охрана: имя git в любом регистре, git только по полному пути, сбой git"
 T=$(mkrepo); echo "KEY=1" > "$T/.env"
 check 2 "регистр: Git.exe add .env блокируется (Windows не различает регистр имени)" be "Git.exe add .env" "$T"
