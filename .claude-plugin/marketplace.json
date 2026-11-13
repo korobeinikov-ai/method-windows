@@ -1,0 +1,21 @@
+{
+  "name": "korobeinikov-ai-windows",
+  "owner": {
+    "name": "KOROBEINIKOV AI"
+  },
+  "metadata": {
+    "description": "Пакет-наставник для предпринимателей, версия для Windows 10 и 11: Claude ведёт от «хочу» до работающей вещи и сам делает технику."
+  },
+  "plugins": [
+    {
+      "name": "osnova",
+      "source": "./plugins/osnova",
+      "description": "Основа для Windows: проводник, правила работы, охрана (секреты, «готово = доказано»), судья, маршруты «свой компьютер» и «Telegram-бот», опыт по Railway и базе. Ставится всем."
+    },
+    {
+      "name": "stroka",
+      "source": "./plugins/stroka",
+      "description": "Строка над полем ввода в приложении Claude: папка, модель, заполнение разговора, лимит подписки."
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "versiya": 5,
+  "chto_novogo": "опыт автора приходит с сервера по личному ключу: Claude ходит за ним без лишних вопросов, а файл с ключом не открывает",
+  "zachem": {
+    "model": "Модель — Opus, самая сильная, как у автора",
+    "effortLevel": "Глубина размышлений — высокая, как у автора",
+    "modelSettings": "Глубина размышлений — высокая, как у автора",
+    "permissions.defaultMode": "Режим «делаю сам, опасное останавливаю»: Claude работает без лишних вопросов, рискованное задерживает охрана",
+    "permissions.deny": "Запреты: ни обычными командами, ни средствами Windows (type, Get-Content, findstr, PowerShell) не открывать файлы с ключами и паролями, не выводить в разговор ключи с Railway и из буфера обмена, не открывать файл личного ключа к методу, не удалять папки целиком, ничего не делать от имени администратора. Запреты продублированы и на случай, когда команды идут через PowerShell (главная защита ключей — охрана пакета)",
+    "permissions.allow": "Безопасный просмотр (список файлов, состояние проекта) и поход за опытом автора на сервер знаний — сразу, без лишних проверок",
+    "autoMode.soft_deny": "Всегда спрашивать перед: перезаписью истории на GitHub, откатом без возврата, сохранением без проверки, отключением проверки секретов, выкладкой в интернет и сменой ключей там (и в Git Bash, и в PowerShell)",
+    "statusLine": "Строка внизу окна, как у автора: папка, модель и глубина, насколько заполнен разговор (зелёный → жёлтый → красный: пора закончить задачу и начать новый разговор) и сколько лимита подписки потрачено за 5 часов и за неделю",
+    "extraKnownMarketplaces": "Пакет KOROBEINIKOV AI обновляется сам при запуске Claude"
+  },
+  "nastroyki": {
+    "model": "opus",
+    "effortLevel": "high",
+    "modelSettings": { "claude-opus-5-5": { "effortLevel": "high" } },
+    "statusLine": { "type": "command", "command": "for p in python python3 \"py -3\"; do [ \"$($p -c 'print(6*7)' </dev/null 2>/dev/null)\" = 42 ] && PYTHONUTF8=1 exec $p \"$HOME/.claude/plugins/data/osnova-korobeinikov-ai-windows/stroka.py\"; done; echo 'KOROBEINIKOV AI: не нашёл Python для строки внизу' >&2" },
+    "permissions": {
+      "defaultMode": "auto",
+      "deny": [
+        "Read(**/.env)", "Read(**/.env.*)", "Read(**/secrets/**)", "Read(~/.ssh/**)", "Read(~/.aws/**)",
+        "Bash(cat *.env*)", "Bash(grep *.env*)", "Bash(rg *.env*)", "Bash(head *.env*)", "Bash(tail *.env*)",
+        "Bash(wc *.env*)", "Bash(less *.env*)", "Bash(more *.env*)",
+        "Bash(*.ssh/*)", "Bash(*.aws/*)", "Bash(*secrets/*)",
+        "Bash(*railway*variable*list*)", "Bash(*railway var*)", "Bash(*railway run*)", "Bash(*railway local*)",
+        "Bash(*railway api*)", "Bash(*railway ssh*)", "Bash(*railway shell*)", "Bash(*railway config*)",
+        "Bash(*railway env* config*)", "Bash(*railway env* show*)", "Bash(*railway env* info*)",
+        "Bash(*railway env*variables.*)", "Bash(*Clipboard*)", "Bash(*/dev/clipboard*)",
+        "Read(~/.config/korobeinikov-ai/**)", "Bash(*.config*korobeinikov-ai*)",
+        "Bash(rm -rf:*)", "Bash(rm -fr:*)", "Bash(*Remove-Item*-Recurse*)",
+        "Bash(sudo:*)", "Bash(runas*)", "Bash(*-Verb RunAs*)",
+        "Bash(type *.env*)", "Bash(findstr*.env*)", "Bash(sed *.env*)", "Bash(awk *.env*)",
+        "Bash(*Get-Content*.env*)", "Bash(*Select-String*.env*)", "Bash(*powershell*.env*)", "Bash(*pwsh*.env*)", "Bash(cmd*.env*)",
+        "PowerShell(*Get-Content*.env*)", "PowerShell(*gc *.env*)", "PowerShell(*cat *.env*)", "PowerShell(*type *.env*)",
+        "PowerShell(*Select-String*.env*)", "PowerShell(*sls *.env*)", "PowerShell(*findstr*.env*)", "PowerShell(*more *.env*)",
+        "PowerShell(*ReadAllText*.env*)", "PowerShell(*ReadAllLines*.env*)",
+        "PowerShell(*.ssh*)", "PowerShell(*.aws*)", "PowerShell(*secrets/*)",
+        "PowerShell(*railway*variable*list*)", "PowerShell(*railway var*)", "PowerShell(*railway run*)", "PowerShell(*railway local*)",
+        "PowerShell(*railway api*)", "PowerShell(*railway ssh*)", "PowerShell(*railway shell*)", "PowerShell(*railway config*)",
+        "PowerShell(*railway env* config*)", "PowerShell(*railway env* show*)", "PowerShell(*railway env* info*)",
+        "PowerShell(*railway env*variables.*)", "PowerShell(*Clipboard*)", "PowerShell(*.config*korobeinikov-ai*)",
+        "PowerShell(*Remove-Item*-Recurse*)", "PowerShell(*Remove-Item* -r *)", "PowerShell(rm *-Recurse*)", "PowerShell(ri *-Recurse*)",
+        "PowerShell(*-Verb RunAs*)", "PowerShell(runas*)"
+      ],
+      "allow": [
+        "Bash(ls:*)", "Bash(pwd)", "Bash(which:*)", "Bash(git status)", "Bash(gh auth status)",
+        "mcp__plugin_osnova_znaniya__poluchit_navyk"
+      ]
+    },
+    "autoMode": {
+      "soft_deny": [
+        "$defaults",
+        "Bash(git push --force:*)", "Bash(git push -f:*)", "Bash(git reset --hard:*)",
+        "Bash(*--no-verify*)", "Bash(git commit -n*)", "Bash(git commit * -n*)",
+        "Bash(*core.hooksPath*)", "Bash(*hookspath*)", "Bash(*VERIFY_OK*)",
+        "Bash(railway up:*)", "Bash(*klyuch.py*peredat*)","Bash(railway environment:*prod*)",
+        "PowerShell(*git push*--force*)", "PowerShell(*git push*-f *)", "PowerShell(*git reset --hard*)",
+        "PowerShell(*--no-verify*)", "PowerShell(*git commit* -n*)",
+        "PowerShell(*core.hooksPath*)", "PowerShell(*hookspath*)", "PowerShell(*VERIFY_OK*)",
+        "PowerShell(*railway up*)", "PowerShell(*klyuch.py*peredat*)", "PowerShell(*railway environment*prod*)"
+      ]
+    }
+  },
+  "vsegda": {
+    "extraKnownMarketplaces": {
+      "korobeinikov-ai-windows": {
+        "source": { "source": "github", "repo": "korobeinikov-ai/method-windows" },
+        "autoUpdate": true
+      }
+    }
+  }
+}

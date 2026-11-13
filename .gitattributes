@@ -1,0 +1,29 @@
+# Концы строк: во всём репо LF. Без этого Git на Windows (core.autocrlf=true) превращает скрипты в CRLF,
+# и bash, сторожа и хуки ломаются на первом же символе возврата каретки.
+* text=auto eol=lf
+
+# Скрипты и тексты — строго LF
+*.sh   text eol=lf
+*.py   text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.toml text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.txt  text eol=lf
+# PowerShell: файлы без BOM и с LF. Их читают как `irm | iex` (BOM там мешает), а не запуском файла.
+*.ps1  text eol=lf
+.githooks/* text eol=lf
+
+# Двойной щелчок по таким файлам в Windows работает только с CRLF
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Картинки и прочее двоичное не трогаем
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary

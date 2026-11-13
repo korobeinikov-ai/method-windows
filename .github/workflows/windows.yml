@@ -1,0 +1,250 @@
+# Проверка на настоящей Windows: установка с чистой машины, пакет в настоящем Claude Code, тесты всех зон.
+# Бежит на каждый push в любую ветку и по кнопке. Скрипты внутри — только на ASCII: так их одинаково читает Windows PowerShell 5.1.
+name: Windows
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+    inputs:
+      s_github:
+        description: 'Ставить как человек: строкой из README, с GitHub (репо должно быть открытым)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+env:
+  # Обычно метод ставится из этой папки (проверяем ровно этот коммит); по кнопке s_github — с GitHub, как у человека.
+  # Claude при этом не запускается (чужой вход не нужен).
+  METHOD_LOCAL_DIR: ${{ !inputs.s_github && github.workspace || '' }}
+  METHOD_NO_LAUNCH: '1'
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      # Настройки Git раннера не меняем: установка тоже их не трогает, LF в файлах держит .gitattributes
+      - uses: actions/checkout@v4
+
+      - name: Разбор PowerShell-файлов
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem -Recurse -Filter *.ps1 -File | Where-Object { $_.FullName -notmatch '\\\.git\\' }) {
+            $text = [IO.File]::ReadAllText($f.FullName, [Text.Encoding]::UTF8)
+            $tokens = $null; $errs = $null
+            [void][System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$tokens, [ref]$errs)
+            if ($errs.Count -gt 0) { $bad++; foreach ($e in $errs) { '{0}:{1} {2}' -f $f.Name, $e.Extent.StartLineNumber, $e.Message } }
+            else { 'ok ' + $f.Name }
+          }
+          if ($bad -gt 0) { exit 1 }
+
+      - name: Что есть на машине до установки
+        run: |
+          $ErrorActionPreference = 'Continue'
+          'PowerShell: ' + $PSVersionTable.PSVersion
+          'winget: ' + (winget --version)
+          'git: ' + (Get-Command git -All -ErrorAction SilentlyContinue | ForEach-Object Source)
+          'python: ' + (Get-Command python -All -ErrorAction SilentlyContinue | ForEach-Object Source)
+          'claude: ' + (Get-Command claude -All -ErrorAction SilentlyContinue | ForEach-Object Source)
+          exit 0
+
+      - name: Помощник - окружение как после перезапуска приложения Claude
+        run: |
+          $fresh = @'
+          # Like a new Claude session after a restart: paths and variables come from the registry, not from the runner process.
+          $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+          foreach ($n in 'CLAUDE_CODE_USE_POWERSHELL_TOOL', 'CLAUDE_CODE_GIT_BASH_PATH', 'PYTHONUTF8') {
+              $v = [Environment]::GetEnvironmentVariable($n, 'User')
+              if ($null -ne $v) { [Environment]::SetEnvironmentVariable($n, $v, 'Process') }
+          }
+          [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+          '@
+          Set-Content -Path (Join-Path $env:RUNNER_TEMP 'fresh.ps1') -Value $fresh -Encoding ASCII
+
+      - name: Установка с чистой машины (без Git и Python)
+        id: install
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+          # 1. Remove Git: it is preinstalled on this machine, but a person may have none
+          $git = 'C:\Program Files\Git'
+          $unins = Join-Path $git 'unins000.exe'
+          if (Test-Path $unins) { Start-Process $unins -ArgumentList '/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES' -Wait }
+          for ($i = 0; $i -lt 60 -and (Test-Path (Join-Path $git 'bin\bash.exe')); $i++) { Start-Sleep -Seconds 2 }
+          if (Test-Path $git) { Remove-Item $git -Recurse -Force -ErrorAction SilentlyContinue }
+          if (Test-Path (Join-Path $git 'bin\bash.exe')) { throw 'Git is still installed' }
+          # The py launcher finds Pythons through the registry: wipe those keys and hide the preinstalled copies
+          foreach ($k in 'HKLM:\SOFTWARE\Python', 'HKLM:\SOFTWARE\WOW6432Node\Python', 'HKCU:\SOFTWARE\Python') {
+              if (Test-Path $k) { Remove-Item $k -Recurse -Force }
+          }
+          $tc = 'C:\hostedtoolcache\windows\Python'
+          if (Test-Path $tc) { Rename-Item $tc 'Python-hidden' }
+          # 2. Remove Git and the preinstalled Python from the search paths: system, user and this window
+          $drop = '\\Git\\|\\Git$|hostedtoolcache\\windows\\Python'
+          foreach ($scope in 'Machine', 'User') {
+              $p = [Environment]::GetEnvironmentVariable('Path', $scope)
+              $keep = @(($p -split ';') | Where-Object { $_ -ne '' -and $_ -notmatch $drop })
+              [Environment]::SetEnvironmentVariable('Path', ($keep -join ';'), $scope)
+          }
+          $env:Path = (@(($env:Path -split ';') | Where-Object { $_ -ne '' -and $_ -notmatch $drop })) -join ';'
+          # 3. Make sure the machine is clean
+          if (Get-Command git -ErrorAction SilentlyContinue) { throw 'git is still visible' }
+          $py = Get-Command python -ErrorAction SilentlyContinue
+          if ($py -and $py.Source -notmatch 'WindowsApps') { throw ('real python is still visible: ' + $py.Source) }
+          if (Get-Command py -ErrorAction SilentlyContinue) {
+              $ErrorActionPreference = 'Continue'
+              $global:LASTEXITCODE = 1
+              py -3 -c 'pass' *> $null
+              if ($LASTEXITCODE -eq 0) { throw 'the py launcher still finds a Python' }
+              $ErrorActionPreference = 'Stop'
+          }
+          'clean machine: no git, no real python, python = ' + [string]$py.Source
+          # 4. The install line like a person runs it: through iex, the file is read as UTF-8
+          $ErrorActionPreference = 'Continue'
+          if ($env:METHOD_LOCAL_DIR) { Get-Content install.ps1 -Raw -Encoding UTF8 | Invoke-Expression }
+          else { irm https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/install.ps1 | iex }
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # The final checkout step needs git: show it the installed one
+          $g = (Get-Command git -ErrorAction SilentlyContinue).Source
+          if ($g) { Add-Content -Path $env:GITHUB_PATH -Value (Split-Path $g) }
+
+      - name: Claude Code - версия, проверка полки и пакета, пакет в списке
+        run: |
+          $ErrorActionPreference = 'Continue'
+          . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          claude --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          claude plugin validate .
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          claude plugin validate plugins/osnova
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $shelf = claude plugin marketplace list | Out-String
+          $shelf
+          if ($shelf -notmatch 'korobeinikov-ai-windows') { 'the shelf korobeinikov-ai-windows is not added'; exit 1 }
+          $list = claude plugin list | Out-String
+          $list
+          if ($list -notmatch 'osnova@korobeinikov-ai-windows') { 'osnova is not in the plugin list'; exit 1 }
+          if ($list -notmatch 'stroka@korobeinikov-ai-windows') { 'stroka is not in the plugin list'; exit 1 }
+          claude plugin validate plugins/stroka
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          exit 0
+
+      - name: Изнутри Claude (как в приложении) - подготовка не ставит Claude и не запускает его
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          # The app has its own copy of Claude: its path comes in CLAUDE_CODE_EXECPATH, a claude command may be absent
+          $c = (Get-Command claude -ErrorAction SilentlyContinue).Source
+          if (-not $c) { 'claude is missing'; exit 1 }
+          $env:CLAUDE_CODE_EXECPATH = $c
+          Remove-Item Env:METHOD_NO_LAUNCH -ErrorAction SilentlyContinue
+          $out = Get-Content install.ps1 -Raw -Encoding UTF8 | Invoke-Expression *>&1 | Out-String
+          $out
+          # Russian words as regex escapes: this script stays ASCII. "Stavlyu Claude" = it tried to install Claude
+          if ($out -match '\u0421\u0442\u0430\u0432\u043b\u044e Claude') { 'inside Claude the install must not install Claude'; exit 1 }
+          if ($out -notmatch '\u043d\u043e\u0432\u043e\u043c \u0441\u0435\u0430\u043d\u0441\u0435') { 'no line about the new session'; exit 1 }
+          exit 0
+
+      - name: Посыльный за знаниями - как его запустит Claude Code (claude mcp list)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          $out = claude mcp list 2>&1 | Out-String
+          $out
+          if ($out -notmatch 'znaniya') { 'the knowledge server of the package is not listed'; exit 1 }
+          exit 0
+
+      - name: Инструменты пакета (gitleaks, ruff и др.) - как ставит проводник
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          $bash = $env:CLAUDE_CODE_GIT_BASH_PATH
+          if (-not $bash -or -not (Test-Path $bash)) { 'Git Bash from the install is missing'; exit 1 }
+          & $bash -c 'bash plugins/osnova/skills/start/instrumenty.sh 2>&1'
+          if ($LASTEXITCODE -ne 0) { 'instrumenty.sh failed'; exit 1 }
+          foreach ($n in 'gitleaks', 'ruff') {
+              $f = Join-Path $env:USERPROFILE ('.local\bin\' + $n + '.exe')
+              if (-not (Test-Path $f)) { $n + '.exe is missing in .local\bin'; exit 1 }
+          }
+          exit 0
+
+      - name: Тесты на Git Bash (tests/test-*.sh)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          # Strict: a missing gitleaks, ruff or node is a failure, not a skip (otherwise the guard checks could silently vanish)
+          KOROBEINIKOV_TEST_STRICT: '1'
+        run: |
+          $ErrorActionPreference = 'Continue'
+          . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          $bash = $env:CLAUDE_CODE_GIT_BASH_PATH
+          if (-not $bash -or -not (Test-Path $bash)) { 'Git Bash from the install is missing'; exit 1 }
+          $logs = Join-Path $env:RUNNER_TEMP 'logs'
+          New-Item -ItemType Directory -Force -Path $logs | Out-Null
+          $failed = @()
+          foreach ($t in @(Get-ChildItem tests -Filter 'test-*.sh' -ErrorAction SilentlyContinue | Sort-Object Name)) {
+              '=== ' + $t.Name
+              & $bash -c ('bash tests/{0} 2>&1' -f $t.Name) | Tee-Object -FilePath (Join-Path $logs ($t.Name + '.log'))
+              if ($LASTEXITCODE -ne 0) { $failed += $t.Name; 'FAILED: ' + $t.Name }
+          }
+          if ($failed.Count -gt 0) { 'Failed bash tests: ' + ($failed -join ', '); exit 1 }
+          exit 0
+
+      - name: Тесты на PowerShell (tests/test-*.ps1)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          $logs = Join-Path $env:RUNNER_TEMP 'logs'
+          New-Item -ItemType Directory -Force -Path $logs | Out-Null
+          $failed = @()
+          foreach ($t in @(Get-ChildItem tests -Filter 'test-*.ps1' -ErrorAction SilentlyContinue | Sort-Object Name)) {
+              '=== ' + $t.Name
+              # Windows PowerShell 5.1 reads a file without BOM as ANSI and breaks Russian letters: add a BOM in the CI workspace
+              $text = [IO.File]::ReadAllText($t.FullName, [Text.Encoding]::UTF8)
+              [IO.File]::WriteAllText($t.FullName, $text, (New-Object System.Text.UTF8Encoding $true))
+              powershell -NoProfile -ExecutionPolicy Bypass -File $t.FullName | Tee-Object -FilePath (Join-Path $logs ($t.Name + '.log'))
+              if ($LASTEXITCODE -ne 0) { $failed += $t.Name; 'FAILED: ' + $t.Name }
+          }
+          if ($failed.Count -gt 0) { 'Failed PowerShell tests: ' + ($failed -join ', '); exit 1 }
+          exit 0
+
+      - name: В логе нет значений ключей
+        if: ${{ !cancelled() }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Shapes of keys that a test could print by mistake. Only names go to the output, never the values.
+          # Fake keys in tests are assembled from pieces at run time, so we look for the shape, not the value.
+          $shapes = [ordered]@{
+              'anthropic-key'   = 'sk-ant-[A-Za-z0-9_-]{16,}'
+              'openai-key'      = '\bsk-[A-Za-z0-9]{32,}'
+              'github-token'    = '\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}'
+              'telegram-token'  = '\b\d{8,10}:[A-Za-z0-9_-]{35}\b'
+              'jwt'             = 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+              'aws-key'         = '\bAKIA[0-9A-Z]{16}\b'
+              'private-key'     = '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+              'password-in-url' = '://[^\s:/@]+:[^\s@]{6,}@'
+          }
+          # First make sure the scanner itself sees a fake (assembled from pieces, printed nowhere)
+          $canary = 'sk-' + 'ant-' + ('Q' * 24)
+          if (-not [regex]::IsMatch($canary, $shapes['anthropic-key'])) { 'scanner self-check failed'; exit 1 }
+          $dir = Join-Path $env:RUNNER_TEMP 'logs'
+          $files = @()
+          if (Test-Path $dir) { $files = @(Get-ChildItem $dir -File) }
+          'log files scanned: ' + $files.Count
+          $hits = 0
+          foreach ($f in $files) {
+              $text = Get-Content -Raw -Path $f.FullName
+              if (-not $text) { continue }
+              foreach ($name in $shapes.Keys) {
+                  $n = [regex]::Matches($text, $shapes[$name]).Count
+                  if ($n -gt 0) { $hits++; ('KEY-LIKE VALUE in {0}: {1} x{2} (value hidden)' -f $f.Name, $name, $n) }
+              }
+          }
+          if ($hits -gt 0) { exit 1 }
+          'no key-like values in the logs'
+          exit 0

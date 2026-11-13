@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+Thumbs.db
+desktop.ini
+node_modules/
+__pycache__/
+.venv/

@@ -1,0 +1,7 @@
+# Концы строк во всём проекте — LF. Иначе Git на Windows подменяет их на CRLF, и скрипты
+# (в первую очередь охрана .githooks/pre-commit) перестают запускаться.
+* text=auto eol=lf
+.githooks/* text eol=lf
+# Только файлам запуска Windows нужен CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf

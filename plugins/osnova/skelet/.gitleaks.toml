@@ -1,0 +1,27 @@
+# Стандартные правила сканера плюс ключи, которые он сам пропускает.
+[extend]
+useDefault = true
+
+# Стандартное правило видит ключ бота только рядом со словом telegram: Bot(token="...") проходит.
+[[rules]]
+id = "klyuch-telegram-bota"
+description = "Ключ Telegram-бота"
+regex = '''(?:^|[^0-9])([0-9]{5,16}:A[A-Za-z0-9_-]{34})(?:[^A-Za-z0-9_-]|$)'''
+secretGroup = 1
+entropy = 3.0
+
+[[rules]]
+id = "parol-v-stroke-bazy"
+description = "Пароль в строке подключения к базе"
+regex = '''(?i)postgres(?:ql)?(?:\+[a-z0-9]+)?://[^:@/\s'"]+:([^@/\s'"]+)@'''
+secretGroup = 1
+
+# Заглушки из примеров и подстановки в коде — не пароль.
+[[rules.allowlists]]
+regexes = ['''(?i)^(?:pass|password|parol|changeme|your[-_]?password|\[.*\]|<.*>|\$?\{.*\}|\$[a-z_]+|[x*.]+)$''']
+
+[[rules]]
+id = "sekretnyi-klyuch-supabase"
+description = "Секретный ключ Supabase"
+regex = '''sb_secret_[A-Za-z0-9_-]{20,}'''
+entropy = 3.0

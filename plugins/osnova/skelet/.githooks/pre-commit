@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Перед каждым сохранением в git — сканер секретов по тому, что идёт в сохранение.
+# Второй слой охраны (первый — хуки пакета у Claude): ловит ключи и пароли в любых файлах.
+PATH="$HOME/.local/bin:$PATH"
+if ! command -v gitleaks >/dev/null; then
+  echo "❌ Нет сканера секретов gitleaks — сохранение остановлено. Скажите Claude: «поставь gitleaks»" >&2
+  exit 1
+fi
+if ! gitleaks git --pre-commit --staged --no-banner --redact . >/dev/null 2>&1; then
+  echo "❌ В сохранении похоже на секрет (ключ, пароль, токен). Значения скрыты:" >&2
+  gitleaks git --pre-commit --staged --no-banner --redact -v . 2>&1 | tail -20 >&2
+  echo "Убери секрет в .env и сохрани заново." >&2
+  exit 1
+fi

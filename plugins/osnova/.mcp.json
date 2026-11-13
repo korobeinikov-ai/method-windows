@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "znaniya": {
+      "command": "${CLAUDE_CODE_GIT_BASH_PATH:-bash}",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/hooks/py.sh",
+        "-I",
+        "-X",
+        "utf8",
+        "${CLAUDE_PLUGIN_ROOT}/znaniya/znaniya.py"
+      ]
+    }
+  }
+}
