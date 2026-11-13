@@ -24,9 +24,7 @@ if [ -n "$missing" ]; then
 
 ## ⚠️ Охрана пакета сейчас НЕ работает
 Не найдено: $missing. Без них ключи и пароли никто не стережёт. До любой другой работы скажи человеку простыми
-словами, что установка не закончилась, и почини: запусти подготовку сам, в фоне (до 15 минут) —
-\`powershell.exe -NoProfile -Command '\$env:METHOD_NO_LAUNCH=1; irm https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/install.ps1 | iex'\` —
-потом пусть человек полностью закроет Claude (и значок у часов внизу справа: правой кнопкой → выход) и открыть снова: новые программы Claude увидит только так.
+словами, что установка не закончилась, и почини (как — ниже).
 EOF
 fi
 
@@ -41,8 +39,13 @@ if [ -n "$warn" ]; then
 
 ## ⚠️ Настройки Windows не закончены
 $warn
-Почини сам: в фоне \`powershell.exe -NoProfile -Command '\$env:METHOD_NO_LAUNCH=1; irm https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/install.ps1 | iex'\`, потом скажи человеку одной строкой:
-полностью закрыть Claude (и значок у часов внизу справа: правой кнопкой → выход) и открыть снова.
+EOF
+fi
+# Починка одна на обе тревоги — печатаем один раз
+if [ -n "$missing$warn" ]; then
+  cat <<EOF
+Почини сам: в фоне (до 15 минут) \`powershell.exe -NoProfile -Command '\$env:METHOD_NO_LAUNCH=1; irm https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/install.ps1 | iex'\`, потом скажи человеку
+полностью закрыть Claude (и значок у часов внизу справа: правой кнопкой → выход) и открыть снова: новые программы Claude увидит только так.
 EOF
 fi
 
