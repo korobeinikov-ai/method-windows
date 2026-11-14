@@ -167,11 +167,14 @@ jobs:
           Remove-Item Env:METHOD_NO_LAUNCH -ErrorAction SilentlyContinue
           # A link the server does not know: the real server answers 410 with the reason, and the reason must reach Claude in Russian
           $env:METHOD_DOSTUP = 'https://korobeinikov-ai.up.railway.app/u/netakoyssylki123'
-          $out = Get-Content install.ps1 -Raw -Encoding UTF8 | Invoke-Expression *>&1 | Out-String
+          # A separate process with its whole output read, like Claude's own tool runs it (Out-Host lines go to stdout there)
+          $out = powershell -NoProfile -ExecutionPolicy Bypass -Command 'Get-Content install.ps1 -Raw -Encoding UTF8 | Invoke-Expression' 2>&1 | Out-String
           $out
           if ($out -notmatch '\u0414\u041e\u0421\u0422\u0423\u041f: \u274c') { 'a refused access link is not reported'; exit 1 }
           if ($out -notmatch '\u0441\u0440\u0430\u0431\u043e\u0442\u0430\u043b\u0430') { 'the reason of the refusal did not reach Claude'; exit 1 }
-          if ($env:METHOD_DOSTUP) { 'the access link stayed in the environment'; exit 1 }
+          # The settings block and the check reach Claude too
+          if ($out -notmatch '\u041e\u0445\u0440\u0430\u043d\u0430 \u0441\u0435\u043a\u0440\u0435\u0442\u043e\u0432 \u0441\u0440\u0430\u0431\u0430\u0442\u044b\u0432\u0430\u0435\u0442') { 'the guard check is not in the output'; exit 1 }
+          Remove-Item Env:METHOD_DOSTUP -ErrorAction SilentlyContinue
           # Paths for the next steps, like Claude reads them: BASH, PY, PROVODNIK, DANNYE
           $P = -join [char[]](0x41F, 0x420, 0x41E, 0x412, 0x41E, 0x414, 0x41D, 0x418, 0x41A)
           $D = -join [char[]](0x414, 0x410, 0x41D, 0x41D, 0x42B, 0x415)
