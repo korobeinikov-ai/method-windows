@@ -17,7 +17,7 @@
 
 Обычно ты в приложении Claude, во вкладке Code: тогда `CLAUDE_CODE_ENTRYPOINT` равна `claude-desktop`. До подготовки у тебя
 может быть только PowerShell — это нормально. Команды ниже — для PowerShell. Работаешь через Git Bash — запускай каждую
-так: `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "<команда>"`.
+так, в одинарных кавычках (иначе bash съест `$env`): `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '<команда>'`.
 
 ## Шаг 1. Windows
 `$env:OS` не `Windows_NT` — это не Windows. Mac (`uname` отвечает `Darwin`) — прочитай целиком инструкцию для Mac
@@ -28,10 +28,11 @@ https://raw.githubusercontent.com/korobeinikov-ai/method/main/CLAUDE.md и де�
 Напиши человеку: «Ставлю метод, всё делаю сам. Сейчас появится запрос — нажмите „Разрешить“. Непонятно, что и зачем, —
 спросите, объясню». И сразу запусти в фоне (идёт до получаса):
 ```
-$env:METHOD_NO_LAUNCH=1; $env:METHOD_DOSTUP='<личная ссылка>'; irm https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/install.ps1 | iex
+$env:METHOD_NO_LAUNCH=1; $env:METHOD_DOSTUP="<личная ссылка>"; irm https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/install.ps1 | iex
 ```
-Личная ссылка — если в сообщении человека есть ссылка вида `https://korobeinikov-ai.up.railway.app/u/…`, это его доступ
-к опыту автора. Нет ссылки — убери из команды `$env:METHOD_DOSTUP='…';`: метод работает и так. Посмотреть, что лежит по
+Личная ссылка — если в сообщении человека есть ссылка вида `https://korobeinikov-ai.up.railway.app/u/…` (после `/u/`
+только латинские буквы, цифры, `_` и `-`; другую не подставляй), это его доступ к опыту автора. Нет ссылки — убери из
+команды `$env:METHOD_DOSTUP="…";`: метод работает и так. Посмотреть, что лежит по
 ссылкам, можно: ключа там нет, сервер отдаёт его только самому запуску и сразу в закрытый файл. Файл ключа не открывай,
 ключ не печатай.
 

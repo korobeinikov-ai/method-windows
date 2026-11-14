@@ -30,7 +30,7 @@
         Local  = $env:METHOD_LOCAL_DIR
         NoRun  = [bool]$env:METHOD_NO_LAUNCH
         # Запущены изнутри Claude (приложение или терминал): ставить и запускать Claude не нужно
-        Vnutri = [bool]($env:CLAUDE_CODE_EXECPATH -and (Test-Path -LiteralPath $env:CLAUDE_CODE_EXECPATH))
+        Vnutri = [bool](($env:CLAUDE_CODE_EXECPATH -and (Test-Path -LiteralPath $env:CLAUDE_CODE_EXECPATH)) -or $env:CLAUDECODE -eq '1')
     }
     if ($S.Vnutri) { $S.NoRun = $true }
     $S.Paket = 'osnova@' + $S.Polka
@@ -327,13 +327,14 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
         # Claude: спрашиваем сам Claude, а не ищем файл — сломанная копия поставится заново.
         # Изнутри Claude берём ту копию, что нас запустила (у приложения она своя, команды claude может и не быть).
         $S.Claude = $null
-        if ($S.Vnutri) {
+        if ($S.Vnutri -and $env:CLAUDE_CODE_EXECPATH -and (Test-Path -LiteralPath $env:CLAUDE_CODE_EXECPATH)) {
             $global:LASTEXITCODE = 1
             $null = & $env:CLAUDE_CODE_EXECPATH --version 2>&1
             if ($LASTEXITCODE -eq 0) { $S.Claude = $env:CLAUDE_CODE_EXECPATH }
         }
+        if ($S.Vnutri -and -not $S.Claude) { $S.Claude = Find-Claude }  # Claude в терминале: своя копия — команда claude
         if ($S.Vnutri -and -not $S.Claude) {
-            Stop-Install 'Claude, который запустил подготовку, не ответил.' 'полностью закройте Claude и откройте снова, потом попросите его поставить метод ещё раз.'
+            Stop-Install 'Claude, который запустил подготовку, не ответил.' 'найди путь к своей программе Claude и запусти подготовку с $env:CLAUDE_CODE_EXECPATH=<путь>; не нашёл — скажи человеку одной строкой полностью закрыть Claude (и значок у часов: правой кнопкой → выход), открыть снова и попросить поставить метод ещё раз.'
         }
         if (-not $S.Claude) { $S.Claude = Find-Claude }
         if ($S.Claude) {
@@ -434,9 +435,21 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
                 $d = $env:METHOD_DOSTUP.Trim()
                 Remove-Item Env:METHOD_DOSTUP -ErrorAction SilentlyContinue  # ссылка одноразовая: повтор подготовки её не тратит
                 if ($d -match '^https://korobeinikov-ai\.up\.railway\.app/u/[A-Za-z0-9_-]+$') {
-                    $global:LASTEXITCODE = 1
-                    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ("irm '" + $d + "?os=windows' | iex") 2>&1 | ForEach-Object { "$_" } | Out-Host
-                    if ($LASTEXITCODE -ne 0) { Say 'ДОСТУП: ❌ не подключился (причина строкой выше), остальное поставлено' }
+                    # 200 — скрипт доступа, 410 — скрипт с причиной отказа («уже сработала, устарела…»); остальное не запускаем.
+                    # Отдельным окном PowerShell: скрипт заканчивается exit. Файл с BOM — так русский текст читает и PowerShell 5.1.
+                    $f = Join-Path ([IO.Path]::GetTempPath()) 'metod-dostup.ps1'
+                    $kod = & "$env:SystemRoot\System32\curl.exe" -sS --max-time 60 -o $f -w '%{http_code}' ($d + '?os=windows') 2>&1 | Out-String
+                    $kod = $kod.Trim()
+                    if (($kod -eq '200' -or $kod -eq '410') -and (Test-Path -LiteralPath $f)) {
+                        $body = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8)
+                        [IO.File]::WriteAllText($f, $body, (New-Object System.Text.UTF8Encoding $true))
+                        $global:LASTEXITCODE = 1
+                        powershell.exe -NoProfile -ExecutionPolicy Bypass -File $f 2>&1 | ForEach-Object { "$_" } | Out-Host
+                        if ($LASTEXITCODE -ne 0) { Say 'ДОСТУП: ❌ не подключился (причина строкой выше), остальное поставлено' }
+                    } else {
+                        Say "ДОСТУП: ❌ сервер метода не ответил ($kod) — запусти подготовку ещё раз через минуту"
+                    }
+                    Remove-Item -LiteralPath $f -ErrorAction SilentlyContinue
                 } else {
                     Say 'ДОСТУП: ❌ это не ссылка из бота метода — попроси человека прислать текст из бота ещё раз'
                 }

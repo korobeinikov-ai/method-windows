@@ -165,11 +165,12 @@ jobs:
           . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
           $env:CLAUDE_CODE_EXECPATH = (Get-Command claude -ErrorAction SilentlyContinue).Source
           Remove-Item Env:METHOD_NO_LAUNCH -ErrorAction SilentlyContinue
-          # A link that is not from the method bot must not be run
-          $env:METHOD_DOSTUP = 'https://evil.example.com/u/abc'
+          # A link the server does not know: the real server answers 410 with the reason, and the reason must reach Claude in Russian
+          $env:METHOD_DOSTUP = 'https://korobeinikov-ai.up.railway.app/u/netakoyssylki123'
           $out = Get-Content install.ps1 -Raw -Encoding UTF8 | Invoke-Expression *>&1 | Out-String
           $out
-          if ($out -notmatch '\u0414\u041e\u0421\u0422\u0423\u041f: \u274c') { 'a foreign access link was not refused'; exit 1 }
+          if ($out -notmatch '\u0414\u041e\u0421\u0422\u0423\u041f: \u274c') { 'a refused access link is not reported'; exit 1 }
+          if ($out -notmatch '\u0441\u0440\u0430\u0431\u043e\u0442\u0430\u043b\u0430') { 'the reason of the refusal did not reach Claude'; exit 1 }
           if ($env:METHOD_DOSTUP) { 'the access link stayed in the environment'; exit 1 }
           # Paths for the next steps, like Claude reads them: BASH, PY, PROVODNIK, DANNYE
           $P = -join [char[]](0x41F, 0x420, 0x41E, 0x412, 0x41E, 0x414, 0x41D, 0x418, 0x41A)
@@ -179,7 +180,8 @@ jobs:
           foreach ($k in 'BASH', 'PY', $P, $D) { if (-not $m[$k]) { 'no path in the output: ' + $k; exit 1 } }
           # Settings and the project in one PowerShell line, as Claude runs them. The name is Russian: the letters must survive
           $title = (-join [char[]](0x41A, 0x43E, 0x444, 0x435, 0x439, 0x43D, 0x44F)) + ' Zerno'
-          & $m['BASH'] $m['PY'] ($m[$P] + '/nastroyki.py') ustanovit --data $m[$D]; & $m['BASH'] $m['PY'] ($m[$P] + '/novyi_proekt.py') kofeynya-zerno $title 'kofe s soboy' --data $m[$D] --zadacha 'uchet prodazh'
+          & $m['BASH'] $m['PY'] ($m[$P] + '/nastroyki.py') ustanovit --data $m[$D]; $rc1 = $LASTEXITCODE; & $m['BASH'] $m['PY'] ($m[$P] + '/novyi_proekt.py') kofeynya-zerno $title 'kofe s soboy' --data $m[$D] --zadacha 'uchet prodazh'
+          if ($rc1 -ne 0) { 'nastroyki.py ustanovit failed'; exit 1 }
           if ($LASTEXITCODE -ne 0) { 'novyi_proekt.py failed'; exit 1 }
           $proj = Join-Path $env:USERPROFILE 'vibecoding\kofeynya-zerno'
           $claudeMd = [IO.File]::ReadAllText((Join-Path $proj 'CLAUDE.md'), [Text.Encoding]::UTF8)
