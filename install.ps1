@@ -8,9 +8,12 @@
 # Повторный запуск безопасен: что уже стоит, не трогает; чужие настройки только дописывает.
 # Файл без BOM и с переводами строк LF: так его читает и `irm | iex` в Windows PowerShell 5.1, и PowerShell 7.
 # Всё внутри одного блока: оборвётся скачивание — не выполнится половина, а окно человека не засоряется функциями.
-# Две переменные нужны только проверкам (человеку не видны):
+# Изнутри Claude ещё подключает личный доступ (METHOD_DOSTUP — ссылка из бота), ставит программы пакета, проверяет охрану
+# и печатает пути проводника: знакомство и проект Claude ведёт в том же чате (инструкция CLAUDE.md).
+# Переменные только для проверок (человеку не видны):
 #   METHOD_LOCAL_DIR — взять пакет метода из этой папки, а не с GitHub (так проверяет CI);
-#   METHOD_NO_LAUNCH — всё поставить, но Claude не запускать.
+#   METHOD_NO_LAUNCH — всё поставить, но Claude не запускать;
+#   METHOD_BEZ_WINGET — ставить Git и Python так, будто winget нет (запасной путь).
 & {
     $ErrorActionPreference = 'Continue'
     $ProgressPreference = 'SilentlyContinue'
@@ -36,16 +39,26 @@
 
     function Say($text) { Write-Host $text }
 
+    # Как запустить снова. Изнутри Claude это читает Claude: человеку команд не показываем.
+    function Say-Again {
+        if ($S.Vnutri) {
+            Write-Host 'ДЛЯ CLAUDE: почини сам и запусти подготовку ещё раз той же командой — что уже стоит, она не тронет. Человеку команд не показывай.'
+            Write-Host 'ИТОГ: ❌ подготовка остановилась на строке выше.'
+            return
+        }
+        Write-Host 'Потом нажмите стрелку вверх и Enter или вставьте эту строку ещё раз. Что уже поставилось, она не тронет:'
+        Write-Host "  $($S.Stroka)"
+        Write-Host ''
+        Write-Host 'Снова не вышло — пришлите автору текст с экрана там, где вы с ним общаетесь.'
+    }
+
     # Остановка: что случилось, что делать и как запустить снова.
     function Stop-Install($what, $do) {
         Write-Host ''
         Write-Host "❌ $what" -ForegroundColor Red
         Write-Host "Что делать: $do"
         Write-Host ''
-        Write-Host 'Потом нажмите стрелку вверх и Enter или вставьте эту строку ещё раз. Что уже поставилось, она не тронет:'
-        Write-Host "  $($S.Stroka)"
-        Write-Host ''
-        Write-Host 'Снова не вышло — пришлите автору текст с экрана там, где вы с ним общаетесь.'
+        Say-Again
         throw 'METHOD_STOP'
     }
 
@@ -160,17 +173,58 @@
     }
 
     # --- установка ------------------------------------------------------------------------
-    function Install-Winget($id) {
-        if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-            Stop-Install 'В Windows нет установщика программ (winget).' 'откройте Microsoft Store, найдите «Установщик приложений» (App Installer), нажмите «Обновить» или «Получить» и запустите установку снова.'
+    # Без winget (на части Windows 10 его нет) или когда он не справился, ставим с сайта программы сами: для этого
+    # пользователя, без окна «Разрешить изменения». Версии и контрольные суммы закреплены: подменённый файл не поставится.
+    $S.Pryamo = @{
+        'Git.Git'            = @{
+            x64   = @('https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.4/Git-2.56.0.4-64-bit.exe', '4961a4a8cc778d8b6e00a5819e5fe4d078b754555aff7aedc2d77a5d74c2de80')
+            arm64 = @('https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.4/Git-2.56.0.4-arm64.exe', 'e7dcc4adbb0eb373064598cd18bc75e60128707d816ead51cd9bd98e356f0075')
+            Args  = @('/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-', '/SUPPRESSMSGBOXES', ('/DIR="' + (Join-Path $env:LOCALAPPDATA 'Programs\Git') + '"'))
         }
-        $global:LASTEXITCODE = 1
-        winget install -e --id $id --source winget --scope user --silent --disable-interactivity --accept-package-agreements --accept-source-agreements | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            Say '⚠️ Первый способ не сработал, пробую обычную установку. Если Windows спросит разрешение, нажмите «Да».'
-            winget install -e --id $id --source winget --silent --disable-interactivity --accept-package-agreements --accept-source-agreements | Out-Host
+        'Python.Python.3.13' = @{
+            x64   = @('https://www.python.org/ftp/python/3.13.17/python-3.13.17-amd64.exe', '5da012101ba2e17113a9a1cd901e9ce1441086f2b7ecb5de06ec94163899a190')
+            arm64 = @('https://www.python.org/ftp/python/3.13.17/python-3.13.17-arm64.exe', '3089a1977c32b26f5078e5a7d0285b7a861b8c96250c5dac3b6af59fbe9e9a75')
+            Args  = @('/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_launcher=0', 'Include_test=0', 'Shortcuts=0')
         }
+    }
+
+    function Install-Direct($id) {
+        $p = $S.Pryamo[$id]
+        $arch = 'x64'
+        if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { $arch = 'arm64' }
+        $url = $p[$arch][0]
+        $name = Split-Path $url -Leaf
+        $f = Join-Path ([IO.Path]::GetTempPath()) $name
+        Say "⏳ Скачиваю $name с сайта программы..."
+        try { Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $f -ErrorAction Stop }
+        catch { Say "⚠️ $name не скачался: $($_.Exception.Message)"; return }
+        if ((Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash -ne $p[$arch][1]) {
+            Remove-Item -LiteralPath $f -ErrorAction SilentlyContinue
+            Say "⚠️ $name не совпал с контрольной суммой — не ставлю."
+            return
+        }
+        $proc = Start-Process -FilePath $f -ArgumentList $p.Args -Wait -PassThru
+        Remove-Item -LiteralPath $f -ErrorAction SilentlyContinue
+        if ($proc.ExitCode -ne 0) { Say "⚠️ Установщик $name закончил с кодом $($proc.ExitCode)." }
         Update-SessionPath
+    }
+
+    # Ставим, пока $found не найдёт программу: winget для этого пользователя → с сайта → winget для всех (тут Windows
+    # может спросить разрешение — это последний способ).
+    function Install-Program($id, [scriptblock]$found) {
+        $winget = (-not $env:METHOD_BEZ_WINGET) -and [bool](Get-Command winget -ErrorAction SilentlyContinue)
+        if ($winget) {
+            winget install -e --id $id --source winget --scope user --silent --disable-interactivity --accept-package-agreements --accept-source-agreements | Out-Host
+            Update-SessionPath
+            if (& $found) { return }
+        }
+        Install-Direct $id
+        if (& $found) { return }
+        if ($winget) {
+            Say '⚠️ Два способа не сработали, пробую третий. Если Windows спросит «Разрешить изменения?» — человеку нажать «Да».'
+            winget install -e --id $id --source winget --silent --disable-interactivity --accept-package-agreements --accept-source-agreements | Out-Host
+            Update-SessionPath
+        }
     }
 
     # Запуск Claude: возвращает код и весь текст ответа (в нём нет ключей: только список и сообщения установки).
@@ -241,13 +295,19 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
             Say '✅ Git уже стоит'
         } else {
             Say '⏳ Ставлю Git. Несколько минут экран может молчать, это нормально: идёт скачивание.'
-            Install-Winget 'Git.Git'
+            Install-Program 'Git.Git' { Find-Git }
             $git = Find-Git
             if (-not $git) { Stop-Install 'Git не поставился.' 'проверьте интернет и свободное место на диске. Если Windows просила разрешение, нужно было нажать «Да».' }
             Say '✅ Git поставлен'
         }
         $bash = Find-GitBash $git
-        if (-not $bash) { Stop-Install 'Не нашёл Git Bash (его ставит Git).' 'откройте Пуск → «Установка и удаление программ», удалите Git и запустите установку снова.' }
+        if (-not $bash) {
+            # Git без Git Bash (урезанный, от другой программы): ставим полный Git для этого пользователя рядом
+            Say '⏳ У этого Git нет Git Bash — ставлю полный Git.'
+            Install-Program 'Git.Git' { Find-GitBash $git }
+            $bash = Find-GitBash $git
+        }
+        if (-not $bash) { Stop-Install 'Не нашёл Git Bash (его ставит Git).' 'проверьте интернет и свободное место на диске.' }
 
         # Python: охрана ключей написана на нём
         $python = Find-Python
@@ -255,7 +315,7 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
             Say '✅ Python уже стоит'
         } else {
             Say '⏳ Ставлю Python. Несколько минут экран может молчать, это нормально.'
-            Install-Winget 'Python.Python.3.13'
+            Install-Program 'Python.Python.3.13' { Find-Python }
             $python = Find-Python
             if (-not $python) { Stop-Install 'Python не поставился.' 'проверьте интернет и свободное место на диске.' }
             Say '✅ Python поставлен'
@@ -346,9 +406,61 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
             else { Say '⚠️ Строка над полем ввода не поставилась: работе не мешает.' }
         }
 
-        Say ''
+        # Изнутри Claude: всё для знакомства и проекта в этом же чате (инструкция CLAUDE.md). Скрипты пакета — через Git Bash.
+        $bad = $false
         if ($S.Vnutri) {
-            Say '✅ Подготовка закончена. Метод заработает в новом сеансе Claude.'
+            $root = $null
+            try {
+                $j = Get-Content -LiteralPath (Join-Path $S.Home '.claude\plugins\installed_plugins.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+                $root = @($j.plugins.($S.Paket))[0].installPath
+            } catch { Say "⚠️ Не прочитал список пакетов Claude: $($_.Exception.Message)" }
+            if (-not $root -or -not (Test-Path (Join-Path $root 'skills\start\SKILL.md'))) {
+                $root = Get-ChildItem (Join-Path $S.Home ".claude\plugins\cache\$($S.Polka)\osnova") -Directory -ErrorAction SilentlyContinue |
+                    Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+            }
+            if (-not $root -or -not (Test-Path (Join-Path $root 'skills\start\SKILL.md'))) { Stop-Install 'Пакет стоит, но его папки нет на диске.' 'запустите подготовку ещё раз.' }
+            $u = { param($p) $p -replace '\\', '/' }  # пути Windows с прямыми слешами понимают и Git Bash, и PowerShell
+            $start = & $u (Join-Path $root 'skills\start')
+            $py = & $u (Join-Path $root 'hooks\py.sh')
+            $data = & $u (Join-Path $S.Home ".claude\plugins\data\osnova-$($S.Polka)")
+
+            & $bash "$start/instrumenty.sh" 2>&1 | ForEach-Object { "$_" } | Out-Host
+            if ($LASTEXITCODE -ne 0) { $bad = $true }
+            & $bash $py "$start/nastroyki.py" obnovleniya 2>&1 | ForEach-Object { "$_" } | Out-Host
+            if ($LASTEXITCODE -ne 0) { $bad = $true }
+
+            # Личный доступ: одноразовая ссылка из бота. Ключ сервер отдаёт только самому запуску и сразу в закрытый файл.
+            if ($env:METHOD_DOSTUP) {
+                $d = $env:METHOD_DOSTUP.Trim()
+                Remove-Item Env:METHOD_DOSTUP -ErrorAction SilentlyContinue  # ссылка одноразовая: повтор подготовки её не тратит
+                if ($d -match '^https://korobeinikov-ai\.up\.railway\.app/u/[A-Za-z0-9_-]+$') {
+                    $global:LASTEXITCODE = 1
+                    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ("irm '" + $d + "?os=windows' | iex") 2>&1 | ForEach-Object { "$_" } | Out-Host
+                    if ($LASTEXITCODE -ne 0) { Say 'ДОСТУП: ❌ не подключился (причина строкой выше), остальное поставлено' }
+                } else {
+                    Say 'ДОСТУП: ❌ это не ссылка из бота метода — попроси человека прислать текст из бота ещё раз'
+                }
+            }
+
+            Say ''
+            Say 'Проверка:'
+            & $bash "$start/proverka.sh" 2>&1 | ForEach-Object { "$_" } | Out-Host
+            if ($LASTEXITCODE -ne 0) { $bad = $true }
+            Say ''
+            Say ('BASH=' + (& $u $bash))
+            Say "PY=$py"
+            Say "ПРОВОДНИК=$start"
+            Say "ДАННЫЕ=$data"
+            if (Test-Path (Join-Path $data 'gotovo')) { Say 'ПРОВОДНИК_ПРОЙДЕН=да' } else { Say 'ПРОВОДНИК_ПРОЙДЕН=нет' }
+            Say 'НАСТРОЙКИ:'
+            & $bash $py "$start/nastroyki.py" pokazat 2>&1 | ForEach-Object { "$_" } | Out-Host
+        }
+
+        Say ''
+        if ($S.Vnutri -and $bad) {
+            Say 'ИТОГ: ❌ есть строки с ❌ выше — почини по подсказке и запусти подготовку ещё раз.'
+        } elseif ($S.Vnutri) {
+            Say 'ИТОГ: ✅ Подготовка закончена. Метод заработает в новом сеансе Claude.'
         } elseif ($S.NoRun) {
             Say '✅ Подготовка закончена. Claude не запускаю: это проверочный запуск.'
         } else {
@@ -370,14 +482,12 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
                 Say '  cd ~\vibecoding; claude Начнём'
             }
         }
-        $global:LASTEXITCODE = 0
+        $global:LASTEXITCODE = [int]$bad
     } catch {
         if ($_.Exception.Message -ne 'METHOD_STOP') {
             Write-Host ''
             Write-Host "❌ Что-то пошло не так: $($_.Exception.Message) (строка $($_.InvocationInfo.ScriptLineNumber))" -ForegroundColor Red
-            Write-Host 'Что делать: вставьте строку установки ещё раз. Что уже поставилось, она не тронет:'
-            Write-Host "  $($S.Stroka)"
-            Write-Host 'Снова не вышло — пришлите автору текст с экрана там, где вы с ним общаетесь.'
+            Say-Again
         }
         $global:LASTEXITCODE = 1
     }

@@ -19,8 +19,16 @@ env:
   METHOD_NO_LAUNCH: '1'
 jobs:
   windows:
+    name: windows (${{ matrix.put }})
     runs-on: windows-latest
     timeout-minutes: 45
+    # winget - the usual way; sayt - as if winget were missing: Git and Python from their own sites
+    strategy:
+      fail-fast: false
+      matrix:
+        put: [winget, sayt]
+    env:
+      METHOD_BEZ_WINGET: ${{ matrix.put == 'sayt' && '1' || '' }}
     defaults:
       run:
         shell: powershell
@@ -146,6 +154,50 @@ jobs:
           # Russian words as regex escapes: this script stays ASCII. "Stavlyu Claude" = it tried to install Claude
           if ($out -match '\u0421\u0442\u0430\u0432\u043b\u044e Claude') { 'inside Claude the install must not install Claude'; exit 1 }
           if ($out -notmatch '\u043d\u043e\u0432\u043e\u043c \u0441\u0435\u0430\u043d\u0441\u0435') { 'no line about the new session'; exit 1 }
+          # "ITOG: [ok]" - everything installed and checked, the result for Claude is there
+          if ($out -notmatch '\u0418\u0422\u041e\u0413: \u2705') { 'no ok result line'; exit 1 }
+          exit 0
+
+      - name: \u0427\u0430\u0442 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0438 - \u043b\u0438\u0447\u043d\u0430\u044f \u0441\u0441\u044b\u043b\u043a\u0430, \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0438 \u043f\u0440\u043e\u0435\u043a\u0442 \u043f\u043e \u043f\u0443\u0442\u044f\u043c \u0438\u0437 \u0432\u044b\u0432\u043e\u0434\u0430 \u043f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u043a\u0438
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          $env:CLAUDE_CODE_EXECPATH = (Get-Command claude -ErrorAction SilentlyContinue).Source
+          Remove-Item Env:METHOD_NO_LAUNCH -ErrorAction SilentlyContinue
+          # A link that is not from the method bot must not be run
+          $env:METHOD_DOSTUP = 'https://evil.example.com/u/abc'
+          $out = Get-Content install.ps1 -Raw -Encoding UTF8 | Invoke-Expression *>&1 | Out-String
+          $out
+          if ($out -notmatch '\u0414\u041e\u0421\u0422\u0423\u041f: \u274c') { 'a foreign access link was not refused'; exit 1 }
+          if ($env:METHOD_DOSTUP) { 'the access link stayed in the environment'; exit 1 }
+          # Paths for the next steps, like Claude reads them: BASH, PY, PROVODNIK, DANNYE
+          $P = -join [char[]](0x41F, 0x420, 0x41E, 0x412, 0x41E, 0x414, 0x41D, 0x418, 0x41A)
+          $D = -join [char[]](0x414, 0x410, 0x41D, 0x41D, 0x42B, 0x415)
+          $m = @{}
+          foreach ($l in ($out -split "`r?`n")) { if ($l -match '^([^=\s]+)=(.+)$') { $m[$Matches[1]] = $Matches[2].Trim() } }
+          foreach ($k in 'BASH', 'PY', $P, $D) { if (-not $m[$k]) { 'no path in the output: ' + $k; exit 1 } }
+          # Settings and the project in one PowerShell line, as Claude runs them. The name is Russian: the letters must survive
+          $title = (-join [char[]](0x41A, 0x43E, 0x444, 0x435, 0x439, 0x43D, 0x44F)) + ' Zerno'
+          & $m['BASH'] $m['PY'] ($m[$P] + '/nastroyki.py') ustanovit --data $m[$D]; & $m['BASH'] $m['PY'] ($m[$P] + '/novyi_proekt.py') kofeynya-zerno $title 'kofe s soboy' --data $m[$D] --zadacha 'uchet prodazh'
+          if ($LASTEXITCODE -ne 0) { 'novyi_proekt.py failed'; exit 1 }
+          $proj = Join-Path $env:USERPROFILE 'vibecoding\kofeynya-zerno'
+          $claudeMd = [IO.File]::ReadAllText((Join-Path $proj 'CLAUDE.md'), [Text.Encoding]::UTF8)
+          if (-not $claudeMd.Contains($title)) { 'the Russian name broke on the way'; exit 1 }
+          foreach ($f in 'gotovo', 'sprosit-zadachu', 'zadacha', 'nastroyki-versiya') {
+              if (-not (Test-Path (Join-Path $m[$D] $f))) { 'no mark in the plugin data: ' + $f; exit 1 }
+          }
+          $s = Get-Content (Join-Path $env:USERPROFILE '.claude\settings.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($s.permissions.defaultMode -ne 'auto') { 'the settings were not applied'; exit 1 }
+          # The next session in the project folder: the start hook says "the project is just created" and keeps the task
+          $env:CLAUDE_PLUGIN_ROOT = (Split-Path (Split-Path $m[$P])) -replace '\\', '/'
+          $env:CLAUDE_PLUGIN_DATA = $m[$D]
+          $env:CLAUDE_PROJECT_DIR = $proj
+          Push-Location $proj
+          $hook = & $m['BASH'] ($env:CLAUDE_PLUGIN_ROOT + '/hooks/session-start.sh') 2>&1 | Out-String
+          Pop-Location
+          if ($hook -notmatch 'uchet prodazh') { $hook; 'the next session does not know the task'; exit 1 }
+          'install chat: refused a foreign link, applied settings, created the project, the next session knows the task'
           exit 0
 
       - name: Посыльный за знаниями - как его запустит Claude Code (claude mcp list)
