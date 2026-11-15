@@ -442,7 +442,7 @@ touch "$D/gotovo"
 new=$(sed -n 's/.*"versiya": *\([0-9][0-9]*\).*/\1/p' "$OSN/skills/start/nastroyki.json" | head -1 | crlf)
 printf '%s\r\n' "${new:-0}" > "$D/nastroyki-versiya"
 out=$(ss)
-! echo "$out" | grep -qE "Первый запуск|обновил настройки|заведён|ждёт" && ok "start: пройденный проводник, файл состояния с \\r\\n — без напоминаний" || bad "start: лишние напоминания (\\r\\n в файле состояния?)"
+! echo "$out" | grep -qE "Первый запуск|обновил настройки|заведён|ждёт|Пора задание" && ok "start: пройденный проводник, файл состояния с \\r\\n — без напоминаний" || bad "start: лишние напоминания (\\r\\n в файле состояния?)"
 echo 0 > "$D/nastroyki-versiya"; printf '%s\r\n' "$(native "$PR")" > "$D/sprosit-zadachu"
 out=$(ss "$PR")
 echo "$out" | grep -q "Автор обновил настройки" && ok "start: устаревшие настройки — предложить обновить" || bad "start: устаревшие настройки не замечены"
@@ -461,6 +461,17 @@ printf '%s\n' "$(native "$PR")" > "$D/sprosit-zadachu"
 out=$(ss)  # (в переменную, а не в grep -q: тот закрывает трубу раньше, чем скрипт допишет правила, и pipefail ругается)
 echo "$out" | grep -q "Новый проект ждёт" && [ -f "$D/sprosit-zadachu" ] && ok "start: сеанс в другой папке подсказывает и метку не тратит" || bad "start: чужой сеанс потратил метку"
 echo "$out" | grep -q 'cd .*; claude' && ok "start: подсказка для человека через ; (не &&)" || bad "start: подсказка не через ;"
+# через 2 дня работы — задание по безопасности, один раз; при тревоге сначала починка
+printf '%s\r\n' "$(( $(date +%s) - 259200 ))" > "$D/nachalo"
+out=$(SS_PS=1 ss)
+! echo "$out" | grep -q "Пора задание" && [ ! -f "$D/bezopasnost" ] \
+  && ok "start: при тревоге задание по безопасности ждёт" || bad "start: задание по безопасности поверх тревоги"
+printf '%s\r\n' "$(native "$PR")" > "$D/sprosit-zadachu"; out=$(ss "$PR")
+echo "$out" | grep -q "Пора задание по безопасности" && [ -f "$D/bezopasnost" ] \
+  && ok "start: через 2 дня (файл с \\r\\n) — задание по безопасности" || bad "start: задание по безопасности не предложено"
+n=$(printf '%s' "$out" | PYX -c 'import sys; print(len(sys.stdin.read()))' | crlf)
+[ "$n" -lt 10000 ] && ok "start: с заданием по безопасности влезает в предел ($n)" || bad "start: с заданием по безопасности $n знаков"
+out=$(ss); ! echo "$out" | grep -q "Пора задание" && ok "start: задание по безопасности — один раз" || bad "start: задание по безопасности каждый сеанс"
 
 echo "== Скелет проекта: концы строк и сторож ключей"
 if [ "$WIN" = 1 ]; then

@@ -32,7 +32,7 @@ PowerShell-скрипт с сервера кладёт ключ в `~/.config/ko
 - `plugins/osnova/rules/` — `PRAVILA.md`, `WINDOWS.md` (как делать по-маковски написанное). `plugins/osnova/skelet/` — заготовка проекта.
 - `plugins/osnova/skills/` — `start` (проводник, `instrumenty.sh`, `nastroyki.json`) и `avtoru` — полные, под Windows.
   `avtoru` (с 15.11): заметка через посыльного (`zametka`) на сервер метода по личному ключу → автору в Telegram.
-  `railway`, `telegram-bot`, `baza`, `premortem`, `svoy-kompyuter`, `systematic-debugging` — заголовки (их кладёт выпуск
+  `railway`, `telegram-bot`, `baza`, `bezopasnost`, `premortem`, `svoy-kompyuter`, `systematic-debugging` — заголовки (их кладёт выпуск
   мастерской), рядом свои скрипты под Windows: `railway/klyuch.py` (ключи через буфер обмена и stdin), шаблон бота на aiogram.
 - `plugins/stroka/` — строка над полем ввода в приложении: копия Mac-версии, от системы не зависит.
 - `tests/` — `test-hooks.sh`, `test-klyuchi.sh`, `test-provodnik.sh`, `test-shablon.sh`, `test-teksty.sh`, `test-znaniya.sh`,
