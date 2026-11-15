@@ -30,6 +30,14 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.end_headers()
         self.wfile.write(telo)
+    def do_POST(self):
+        svoy = self.headers.get("Authorization") == f"Bearer {klyuch}"
+        telo = self.rfile.read(int(self.headers["Content-Length"]))
+        if svoy:
+            open(port_fayl + ".zametka", "wb").write(telo)
+        self.send_response(200 if svoy else 401)
+        self.end_headers()
+        self.wfile.write(("Ушло автору." if svoy else "Ключ не подошёл.").encode("utf-8"))
     def log_message(self, *a):
         pass
 s = HTTPServer(("127.0.0.1", 0), H)
@@ -66,6 +74,32 @@ grep -qF "$KLYUCH" <<<"$out$(cat "$T/err")" && bad "ключ попал в вы�
 out=$(zapros "$T/net-klyucha")
 echo "$out" | grep -q 'korobeinikov_aibot' && echo "$out" | grep -q '"isError": true' \
   && ok "нет ключа — Claude отправляет человека в бота метода" || bad "без ключа нет подсказки про бота"
+
+# «передай автору»: тот же ключ, тот же сервер, POST /zametka. Дом — подставной, программы пакета — настоящие.
+wpath() { if command -v cygpath >/dev/null 2>&1; then cygpath -aw "$1"; else printf '%s' "$1"; fi; }
+mkdir -p "$T/home"; DOM="$(wpath "$T/home")"; BIN="$HOME/.local/bin"
+zametka() {
+  printf 'Кнопка не та ✅ в папке %s\n' "$DOM" |
+    HOME="$T/home" USERPROFILE="$DOM" PATH="$BIN:$PATH" KAI_ZNANIYA_URL="http://127.0.0.1:$PORT" KAI_KLYUCH="$1" \
+    "${PY[@]}" "$PKG/skills/avtoru/otpravit.py" --gde "start, шаг 2" --tip затык 2>&1
+}
+if command -v gitleaks >/dev/null 2>&1 || [ -e "$BIN/gitleaks.exe" ] || [ -e "$BIN/gitleaks" ]; then
+  out=$(zametka "$T/klyuch"); code=$?
+  [ $code -eq 0 ] && echo "$out" | grep -q "Ушло автору" && ok "заметка автору ушла на сервер по ключу" \
+    || { bad "заметка не ушла (код $code)"; echo "$out" | tail -3; }
+  Z="$(wpath "$T/port.zametka")" DOM="$DOM" "${PY[@]}" -c '
+import json, os, sys
+z = json.load(open(os.environ["Z"], encoding="utf-8"))
+t = z["tekst"]
+sys.exit(0 if "Кнопка не та ✅" in t and z["tip"] == "затык" and "~" in t and os.environ["DOM"] not in t else 1)' </dev/null \
+    && ok "в заметке русские буквы и значок целы, домашняя папка → ~" || bad "заметка пришла испорченной"
+  grep -qF "$KLYUCH" <<<"$out" && bad "ключ попал в вывод заметки" || ok "ключ в выводе заметки не печатается"
+  out=$(zametka "$T/net-klyucha"); code=$?
+  [ $code -eq 1 ] && echo "$out" | grep -q "нет личного доступа" && ok "без ключа заметка не уходит, Claude знает, что сказать" \
+    || bad "без ключа заметка (код $code)"
+else
+  echo "  skip: заметка автору (нет gitleaks)"
+fi
 
 echo
 if [ "$fail" -eq 0 ]; then echo "✅ Посыльный: всё в порядке"; else echo "❌ Посыльный: есть провалы"; fi
