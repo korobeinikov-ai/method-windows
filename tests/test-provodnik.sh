@@ -142,6 +142,28 @@ if [ $WIN = 1 ]; then
 fi
 rm -rf "$PB"
 
+# --- базовый метод из наборов: полный метод убирает его блок, своё человека не трогает (LF и CRLF)
+KD="$ROOT_T/kfg"; K="$KD/CLAUDE.md"; mkdir -p "$KD"
+BZ() { bash "$S/baza.sh" "$K" 2>&1; }
+nbak() { ls "$K".bak-korobeinikov-* 2>/dev/null | wc -l | tr -d ' '; }
+BS='<!-- korobeinikov-ai-baza:start v1 -->'; BE='<!-- korobeinikov-ai-baza:end -->'
+printf '# Мои правила\nговори на ты\n' > "$ROOT_T/svoe"
+{ cat "$ROOT_T/svoe"; printf '\n%s\nправило\n%s\n' "$BS" "$BE"; } > "$K"; out=$(BZ)
+cmp -s "$K" "$ROOT_T/svoe" && [ "$(nbak)" = 1 ] && echo "$out" | grep -q "БАЗОВЫЙ МЕТОД из прежнего набора убран" \
+  && ok "базовый метод: блок убран, своё цело байт в байт, копия рядом" || bad "базовый метод: блок не убран или задето своё"
+rm -f "$K".bak-korobeinikov-*
+printf '# Мои правила\r\nговори на ты\r\n' > "$ROOT_T/svoe"
+{ cat "$ROOT_T/svoe"; printf '\r\n<!-- korobeinikov-ai-baza:start -->\r\nстарое\r\n%s\r\n' "$BE"; } > "$K"; out=$(BZ)
+cmp -s "$K" "$ROOT_T/svoe" && ok "базовый метод: CRLF и черновик без версии — своё цело байт в байт" || bad "базовый метод: CRLF или черновик"
+rm -f "$K".bak-korobeinikov-*
+printf 'своё\n%s\nбез конца\n' "$BS" > "$K"; cp "$K" "$ROOT_T/do"; out=$(BZ)
+cmp -s "$K" "$ROOT_T/do" && [ "$(nbak)" = 0 ] && echo "$out" | grep -q "ДЛЯ CLAUDE" \
+  && ok "базовый метод: метки сломаны — файл не тронут, Claude скажет" || bad "базовый метод: сломанные метки"
+printf 'про метку korobeinikov-ai-baza:start пишу словами\n' > "$K"; cp "$K" "$ROOT_T/do"; out=$(BZ)
+cmp -s "$K" "$ROOT_T/do" && [ -z "$out" ] && [ "$(nbak)" = 0 ] \
+  && ok "базовый метод: без блока — молча, файл не тронут" || bad "базовый метод: тронул файл без блока"
+rm -rf "$KD" "$ROOT_T/svoe" "$ROOT_T/do"
+
 # --- автообновление: всем, без вопроса, только оно
 N obnovleniya >/dev/null
 J "s['extraKnownMarketplaces']['korobeinikov-ai-windows']['autoUpdate'] is True and s['extraKnownMarketplaces']['korobeinikov-ai-windows']['source']['repo']=='korobeinikov-ai/method-windows' and 'model' not in s and 'permissions' not in s" \

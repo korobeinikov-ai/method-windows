@@ -149,8 +149,15 @@ jobs:
           if (-not $c) { 'claude is missing'; exit 1 }
           $env:CLAUDE_CODE_EXECPATH = $c
           Remove-Item Env:METHOD_NO_LAUNCH -ErrorAction SilentlyContinue
+          # A base method block from the kits (CRLF, as Windows editors write it): the install removes only the block
+          $cm = Join-Path $env:USERPROFILE '.claude\CLAUDE.md'
+          $own = "# my rules`r`nbe short`r`n"
+          [IO.File]::WriteAllText($cm, $own + "`r`n<!-- korobeinikov-ai-baza:start v1 -->`r`nbase rules`r`n<!-- korobeinikov-ai-baza:end -->`r`n")
           $out = Get-Content install.ps1 -Raw -Encoding UTF8 | Invoke-Expression *>&1 | Out-String
           $out
+          if ([IO.File]::ReadAllText($cm) -ne $own) { 'base method block not removed or own lines changed'; exit 1 }
+          if (-not (Get-ChildItem (Split-Path $cm) -Filter 'CLAUDE.md.bak-korobeinikov-*')) { 'no backup of CLAUDE.md'; exit 1 }
+          Remove-Item $cm, (Join-Path (Split-Path $cm) 'CLAUDE.md.bak-korobeinikov-*') -ErrorAction SilentlyContinue
           # Russian words as regex escapes: this script stays ASCII. "Stavlyu Claude" = it tried to install Claude
           if ($out -match '\u0421\u0442\u0430\u0432\u043b\u044e Claude') { 'inside Claude the install must not install Claude'; exit 1 }
           if ($out -notmatch '\u043d\u043e\u0432\u043e\u043c \u0441\u0435\u0430\u043d\u0441\u0435') { 'no line about the new session'; exit 1 }

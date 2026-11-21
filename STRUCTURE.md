@@ -31,6 +31,8 @@ PowerShell-скрипт с сервера кладёт ключ в `~/.config/ko
   Git Bash + `py.sh -I -X utf8`; команды Mac в тексте (`python3`, `.venv/bin`) переводит на Windows.
 - `plugins/osnova/rules/` — `PRAVILA.md`, `WINDOWS.md` (как делать по-маковски написанное). `plugins/osnova/skelet/` — заготовка проекта.
 - `plugins/osnova/skills/` — `start` (проводник, `instrumenty.sh`, `nastroyki.json`) и `avtoru` — полные, под Windows.
+  `start/baza.sh` (21.11) — подготовка зовёт его после пакета: убирает из личных инструкций Claude блок «Базовый метод»,
+  который кладут наборы автора (только между метками `korobeinikov-ai-baza`, копия рядом, CRLF сохраняется).
   `avtoru` (с 15.11): заметка через посыльного (`zametka`) на сервер метода по личному ключу → автору в Telegram.
   `railway`, `telegram-bot`, `baza`, `bezopasnost`, `premortem`, `svoy-kompyuter`, `systematic-debugging` — заголовки (их кладёт выпуск
   мастерской), рядом свои скрипты под Windows: `railway/klyuch.py` (ключи через буфер обмена и stdin), шаблон бота на aiogram.

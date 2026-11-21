@@ -429,6 +429,9 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
             if ($LASTEXITCODE -ne 0) { $bad = $true }
             & $bash $py "$start/nastroyki.py" obnovleniya 2>&1 | ForEach-Object { "$_" } | Out-Host
             if ($LASTEXITCODE -ne 0) { $bad = $true }
+            # Базовый метод из наборов автора в личных инструкциях Claude: полный метод его заменяет — блок убираем.
+            # Сбой здесь установку не останавливает: скрипт сам пишет строку ⚠️ для Claude.
+            & $bash "$start/baza.sh" (& $u (Join-Path $S.Home '.claude\CLAUDE.md')) 2>&1 | ForEach-Object { "$_" } | Out-Host
 
             # Личный доступ: одноразовая ссылка из бота. Ключ сервер отдаёт только самому запуску и сразу в закрытый файл.
             if ($env:METHOD_DOSTUP) {
