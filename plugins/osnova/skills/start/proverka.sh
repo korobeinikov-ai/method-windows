@@ -5,7 +5,7 @@ HERE="$(cd "$(dirname "${0//\\//}")" && pwd)" # Claude Code может пере�
 HOOKS="$(cd "$HERE/../../hooks" && pwd)"
 TOOLS="bash $HERE/instrumenty.sh"
 PATH="$HOME/.local/bin:$PATH"
-INSTALL="запусти подготовку сам, в фоне, до 15 минут (что уже стоит — не тронет): powershell.exe -NoProfile -Command '\$env:METHOD_NO_LAUNCH=1; irm https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/install.ps1 | iex'; потом руки человека: полностью закрыть Claude (и значок у часов внизу справа: правой кнопкой → выход) и открыть снова"
+INSTALL="запусти подготовку сам, в фоне, до 15 минут (что уже стоит — не тронет): powershell.exe -NoProfile -Command '\$env:METHOD_NO_LAUNCH=1; irm https://metod.korobeinikov.ai/windows/install.ps1 | iex'; потом руки человека: полностью закрыть Claude (и значок у часов внизу справа: правой кнопкой → выход) и открыть снова"
 bad=0
 ok() { echo "✅ $1"; }
 no() { echo "❌ $1 → $2"; bad=1; }

@@ -29,6 +29,11 @@ scan "нет .venv/bin и Cmd" '\.venv/bin|Cmd\b' 'rules/WINDOWS.md'
 scan "нет голой команды open и chmod" '(`|^|[ (])open [a-z"$]|chmod ' 'rules/WINDOWS.md'
 scan "нет абсолютных путей чужого компьютера" '/Users/[A-Za-z]|C:\\Users\\[A-Za-z]'
 scan "нет ссылок на полку и витрину Mac" 'korobeinikov-ai-method|korobeinikov-ai/method([^-]|$)'
+# Прежние адреса метода (GitHub-полка, сервер на Railway) — нигде в пакетах и текстах установки, только домен.
+# Исключение одно: шаблон личной ссылки в install.ps1 принимает и прежний адрес (выданные раньше ссылки).
+hits=$(cd "$REPO" && grep -rn -E 'korobeinikov-ai/method-windows|raw\.githubusercontent\.com/korobeinikov-ai|up\\?\.railway\\?\.app' \
+  plugins README.md CLAUDE.md install.ps1 .claude-plugin | grep -v -F '|korobeinikov-ai\.up\.railway\.app)/u/' | head -5)
+[ -z "$hits" ] && ok "нет прежних адресов метода: везде домен" || { bad "прежние адреса метода"; printf '%s\n' "$hits" | cut -c1-160 | sed 's/^/    /'; }
 
 # Запуск Python из навыков: через py.sh пакета, который лежит на месте
 USES=$(grep -l 'hooks/py.sh' "${FILES[@]}" 2>/dev/null | head -20)

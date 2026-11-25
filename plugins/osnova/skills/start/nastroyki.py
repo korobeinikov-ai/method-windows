@@ -31,6 +31,10 @@ def settings_path():
 
 def merge(cur, new, path, changes, zachem):
     """Слить наше `new` в настройки человека `cur`; изменения копятся в changes."""
+    if path.startswith("extraKnownMarketplaces.") and path.endswith(".source"):  # источник полки — целиком: поля
+        if cur != new:  # прежнего (repo) рядом с новыми (url) сломали бы его
+            changes.append((path, "заменится" if cur is not None else "добавится"))
+        return json.loads(json.dumps(new))
     if (isinstance(new, dict) and cur is not None and not isinstance(cur, dict)) or \
             (isinstance(new, list) and cur is not None and not isinstance(cur, list)):
         changes.append((path, f"заменится: сейчас там не по форме ({str(cur)[:40]})"))  # не молча

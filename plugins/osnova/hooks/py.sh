@@ -52,7 +52,7 @@ if [[ $input =~ $re_pre ]] && [[ $input =~ $re_git ]]; then
   printf '%s\n' \
     "ЗАБЛОКИРОВАНО: на этом компьютере не найден Python, охрана ключей не работает, а без неё" \
     "сохранять и отправлять в git нельзя. Скажи человеку простыми словами: установка не закончилась." \
-    "Запусти подготовку ещё раз сам, в фоне: powershell.exe -NoProfile -Command '\$env:METHOD_NO_LAUNCH=1; irm https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/install.ps1 | iex'" \
+    "Запусти подготовку ещё раз сам, в фоне: powershell.exe -NoProfile -Command '\$env:METHOD_NO_LAUNCH=1; irm https://metod.korobeinikov.ai/windows/install.ps1 | iex'" \
     "Потом человеку: полностью закрыть Claude (и значок у часов внизу справа: правой кнопкой → выход) и открыть снова. Охрану не обходи." >&2
   exit 2
 fi

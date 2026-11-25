@@ -1,5 +1,5 @@
 # Подготовка Windows для метода KOROBEINIKOV AI одной строкой:
-#   irm https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/install.ps1 | iex
+#   irm https://metod.korobeinikov.ai/windows/install.ps1 | iex
 # Обычно её запускает сам Claude в приложении Claude (вкладка Code) по инструкции CLAUDE.md: тогда Claude уже есть
 # (его путь — в CLAUDE_CODE_EXECPATH), строка его не ставит и не запускает. Из обычного окна PowerShell она работает
 # так же и в конце запускает Claude сама. В строке нет кавычек: мессенджеры подменяют их на «ёлочки».
@@ -11,7 +11,7 @@
 # Изнутри Claude ещё подключает личный доступ (METHOD_DOSTUP — ссылка из бота), ставит программы пакета, проверяет охрану
 # и печатает пути проводника: знакомство и проект Claude ведёт в том же чате (инструкция CLAUDE.md).
 # Переменные только для проверок (человеку не видны):
-#   METHOD_LOCAL_DIR — взять пакет метода из этой папки, а не с GitHub (так проверяет CI);
+#   METHOD_LOCAL_DIR — взять пакет метода из этой папки, а не со склада метода;
 #   METHOD_NO_LAUNCH — всё поставить, но Claude не запускать;
 #   METHOD_BEZ_WINGET — ставить Git и Python так, будто winget нет (запасной путь).
 & {
@@ -22,9 +22,9 @@
     try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { Write-Host '⚠️ Не смог переключить кодировку окна: русские буквы могут выглядеть странно, на установку это не влияет.' }
 
     $S = @{
-        Repo   = 'korobeinikov-ai/method-windows'
+        Katalog = 'https://metod.korobeinikov.ai/windows/marketplace.json'  # склад метода: каталог пакетов, архивы по sha256
         Polka  = 'korobeinikov-ai-windows'
-        Stroka = 'irm https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/install.ps1 | iex'
+        Stroka = 'irm https://metod.korobeinikov.ai/windows/install.ps1 | iex'
         Fraza  = 'Начнём'
         Home   = $env:USERPROFILE
         Local  = $env:METHOD_LOCAL_DIR
@@ -381,7 +381,7 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
             Say '✅ Пакет метода уже стоит'
         } else {
             Say '⏳ Подключаю пакет метода...'
-            $src = $S.Repo
+            $src = $S.Katalog
             if ($S.Local) { $src = $S.Local }
             $r = Invoke-Claude @('plugin', 'marketplace', 'add', $src)
             if ($r.Code -ne 0 -and $r.Text -notmatch 'already') {
@@ -437,7 +437,8 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
             if ($env:METHOD_DOSTUP) {
                 $d = $env:METHOD_DOSTUP.Trim()
                 Remove-Item Env:METHOD_DOSTUP -ErrorAction SilentlyContinue  # ссылка одноразовая: повтор подготовки её не тратит
-                if ($d -match '^https://korobeinikov-ai\.up\.railway\.app/u/[A-Za-z0-9_-]+$') {
+                # Ссылка — на домене метода; прежние ссылки бота (на адресе Railway) — тот же сервер, тоже принимаем.
+                if ($d -match '^https://(metod\.korobeinikov\.ai|korobeinikov-ai\.up\.railway\.app)/u/[A-Za-z0-9_-]+$') {
                     # 200 — скрипт доступа, 410 — скрипт с причиной отказа («уже сработала, устарела…»); остальное не запускаем.
                     # Отдельным окном PowerShell: скрипт заканчивается exit. Файл с BOM — так русский текст читает и PowerShell 5.1.
                     $f = Join-Path ([IO.Path]::GetTempPath()) 'metod-dostup.ps1'

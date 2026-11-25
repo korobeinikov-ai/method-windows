@@ -20,7 +20,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-SERVER = "https://korobeinikov-ai.up.railway.app"
+SERVER = "https://metod.korobeinikov.ai"
 # Подмена адреса — только на этот же компьютер (для тестов): чужой проект не уведёт ключ на свой сервер своей настройкой.
 ADRES = os.environ.get("KAI_ZNANIYA_URL", SERVER)
 if not re.match(r"^http://127\.0\.0\.1:\d+$", ADRES):

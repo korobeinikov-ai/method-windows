@@ -1,4 +1,5 @@
-# Проверка на настоящей Windows: установка с чистой машины, пакет в настоящем Claude Code, тесты всех зон.
+# Проверка на настоящей Windows: путь новичка по складу метода на домене — установщик и каталог с домена, пакеты
+# архивами по sha256 в настоящем Claude Code, — установка с чистой машины, тесты всех зон.
 # Бежит на каждый push в любую ветку и по кнопке. Скрипты внутри — только на ASCII: так их одинаково читает Windows PowerShell 5.1.
 name: Windows
 on:
@@ -6,16 +7,17 @@ on:
     branches: ['**']
   workflow_dispatch:
     inputs:
-      s_github:
-        description: 'Ставить как человек: строкой из README, с GitHub (репо должно быть открытым)'
+      s_domena:
+        description: 'Ставить как человек: с настоящего склада метода на домене (после выпуска)'
         type: boolean
         default: false
 permissions:
   contents: read
 env:
-  # Обычно метод ставится из этой папки (проверяем ровно этот коммит); по кнопке s_github — с GitHub, как у человека.
-  # Claude при этом не запускается (чужой вход не нужен).
-  METHOD_LOCAL_DIR: ${{ !inputs.s_github && github.workspace || '' }}
+  # Обычно склад метода — на этой же машине: собран из этого коммита (tests/sklad.py), домен metod.korobeinikov.ai ведёт
+  # сюда записью в hosts — проверяем ровно этот коммит теми же адресами, что у человека. По кнопке s_domena — настоящий
+  # склад на домене, как у человека. Claude при этом не запускается (чужой вход не нужен).
+  S_DOMENA: ${{ inputs.s_domena && '1' || '' }}
   METHOD_NO_LAUNCH: '1'
 jobs:
   windows:
@@ -71,6 +73,41 @@ jobs:
           '@
           Set-Content -Path (Join-Path $env:RUNNER_TEMP 'fresh.ps1') -Value $fresh -Encoding ASCII
 
+      - name: Склад метода на этой машине (из этого коммита), домен ведёт сюда
+        if: ${{ !env.S_DOMENA }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $t = $env:RUNNER_TEMP
+          # Python for the stand-in server: a copy outside the search paths (the install below must find none)
+          $py = (Get-Command python -ErrorAction Stop).Source
+          Copy-Item (Split-Path $py) (Join-Path $t 'srvpy') -Recurse
+          # A certificate for the domain: openssl of the preinstalled Git (the install step removes Git)
+          $env:MSYS_NO_PATHCONV = '1'
+          $ssl = 'C:\Program Files\Git\usr\bin\openssl.exe'
+          $ErrorActionPreference = 'Continue'
+          & $ssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj '/CN=metod.korobeinikov.ai' -addext 'subjectAltName=DNS:metod.korobeinikov.ai' -keyout "$t\sklad.key" -out "$t\sklad.crt" 2>&1 | Out-Host
+          if ($LASTEXITCODE -ne 0) { 'openssl failed'; exit 1 }
+          $ErrorActionPreference = 'Stop'
+          # Trusted by PowerShell (irm) and curl.exe through the Windows store, by Claude Code through NODE_EXTRA_CA_CERTS
+          Import-Certificate -FilePath "$t\sklad.crt" -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+          Add-Content -Path $env:GITHUB_ENV -Value "NODE_EXTRA_CA_CERTS=$t\sklad.crt"
+          # The domain leads to this machine's own network address: Claude Code takes no archives from 127.0.0.1
+          $ip = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1).IPv4Address.IPAddress
+          if (-not $ip) { 'no network address'; exit 1 }
+          Add-Content -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Value "`r`n$ip metod.korobeinikov.ai" -Encoding ASCII
+          Clear-DnsClientCache
+          $a = @('-I', ('"' + (Join-Path $PWD 'tests\sklad.py') + '"'), ('"' + $PWD + '"'), ('"' + "$t\sklad.crt" + '"'), ('"' + "$t\sklad.key" + '"'))
+          $p = Start-Process -FilePath (Join-Path $t 'srvpy\python.exe') -ArgumentList $a -RedirectStandardOutput "$t\sklad.out" -RedirectStandardError "$t\sklad.log" -WindowStyle Hidden -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
+              Start-Sleep -Seconds 1
+              try { $ok = (Invoke-WebRequest -UseBasicParsing -Uri 'https://metod.korobeinikov.ai/windows/marketplace.json').StatusCode -eq 200 } catch { $_.Exception.Message }
+              if ($p.HasExited) { break }
+          }
+          Get-Content "$t\sklad.out", "$t\sklad.log" -ErrorAction SilentlyContinue
+          if (-not $ok) { 'the stand-in sklad did not answer on https://metod.korobeinikov.ai'; exit 1 }
+          'sklad: https://metod.korobeinikov.ai -> ' + $ip + ' (this machine)'
+
       - name: Установка с чистой машины (без Git и Python)
         id: install
         run: |
@@ -109,10 +146,9 @@ jobs:
               $ErrorActionPreference = 'Stop'
           }
           'clean machine: no git, no real python, python = ' + [string]$py.Source
-          # 4. The install line like a person runs it: through iex, the file is read as UTF-8
+          # 4. The install line like a person runs it: from the domain, through iex
           $ErrorActionPreference = 'Continue'
-          if ($env:METHOD_LOCAL_DIR) { Get-Content install.ps1 -Raw -Encoding UTF8 | Invoke-Expression }
-          else { irm https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/install.ps1 | iex }
+          irm https://metod.korobeinikov.ai/windows/install.ps1 | iex
           if ($LASTEXITCODE -ne 0) { exit 1 }
           # The final checkout step needs git: show it the installed one
           $g = (Get-Command git -ErrorAction SilentlyContinue).Source
@@ -153,7 +189,8 @@ jobs:
           $cm = Join-Path $env:USERPROFILE '.claude\CLAUDE.md'
           $own = "# my rules`r`nbe short`r`n"
           [IO.File]::WriteAllText($cm, $own + "`r`n<!-- korobeinikov-ai-baza:start v1 -->`r`nbase rules`r`n<!-- korobeinikov-ai-baza:end -->`r`n")
-          $out = Get-Content install.ps1 -Raw -Encoding UTF8 | Invoke-Expression *>&1 | Out-String
+          # The command of the instruction (CLAUDE.md): the install line from the domain
+          $out = irm https://metod.korobeinikov.ai/windows/install.ps1 | iex *>&1 | Out-String
           $out
           if ([IO.File]::ReadAllText($cm) -ne $own) { 'base method block not removed or own lines changed'; exit 1 }
           if (-not (Get-ChildItem (Split-Path $cm) -Filter 'CLAUDE.md.bak-korobeinikov-*')) { 'no backup of CLAUDE.md'; exit 1 }
@@ -172,10 +209,12 @@ jobs:
           . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
           $env:CLAUDE_CODE_EXECPATH = (Get-Command claude -ErrorAction SilentlyContinue).Source
           Remove-Item Env:METHOD_NO_LAUNCH -ErrorAction SilentlyContinue
-          # A link the server does not know: the real server answers 410 with the reason, and the reason must reach Claude in Russian
-          $env:METHOD_DOSTUP = 'https://korobeinikov-ai.up.railway.app/u/netakoyssylki123'
+          # A link the server does not know: the real server answers 410 with the reason, and the reason must reach Claude in Russian.
+          # The domain leads to the stand-in sklad here: the link of the old address goes to the real server (old links still work).
+          $env:METHOD_DOSTUP = 'https://metod.korobeinikov.ai/u/netakoyssylki123'
+          if (-not $env:S_DOMENA) { $env:METHOD_DOSTUP = 'https://korobeinikov-ai.up.' + 'railway.app/u/netakoyssylki123' }
           # A separate process with its whole output read, like Claude's own tool runs it (Out-Host lines go to stdout there)
-          $out = powershell -NoProfile -ExecutionPolicy Bypass -Command 'Get-Content install.ps1 -Raw -Encoding UTF8 | Invoke-Expression' 2>&1 | Out-String
+          $out = powershell -NoProfile -ExecutionPolicy Bypass -Command 'irm https://metod.korobeinikov.ai/windows/install.ps1 | iex' 2>&1 | Out-String
           $out
           if ($out -notmatch '\u0414\u041e\u0421\u0422\u0423\u041f: \u274c') { 'a refused access link is not reported'; exit 1 }
           if ($out -notmatch '\u0441\u0440\u0430\u0431\u043e\u0442\u0430\u043b\u0430') { 'the reason of the refusal did not reach Claude'; exit 1 }
@@ -210,6 +249,72 @@ jobs:
           Pop-Location
           if ($hook -notmatch 'uchet prodazh') { $hook; 'the next session does not know the task'; exit 1 }
           'install chat: refused a foreign link, applied settings, created the project, the next session knows the task'
+          exit 0
+
+      - name: Новая схема - каталог и архивы с домена, sha256, распаковка, настройки автообновления
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          $base = 'https://metod.korobeinikov.ai/windows'
+          $bad = 0
+          function Fail($m) { 'FAIL: ' + $m; $script:bad++ }
+          # The catalog, as Claude Code takes it
+          $k = irm "$base/marketplace.json"
+          if ($k.name -ne 'korobeinikov-ai-windows') { Fail ('catalog name: ' + $k.name) }
+          if ((@($k.plugins | ForEach-Object name) -join ',') -ne 'osnova,stroka') { Fail 'catalog plugins are not osnova,stroka' }
+          $inst = Get-Content -Raw -Encoding UTF8 (Join-Path $env:USERPROFILE '.claude\plugins\installed_plugins.json') | ConvertFrom-Json
+          foreach ($p in $k.plugins) {
+              $s = $p.source
+              if ($s.source -ne 'archive' -or -not $s.url.StartsWith("$base/plugins/") -or $s.sha256 -notmatch '^[0-9a-f]{64}$') { Fail ($p.name + ': source is not an archive on the domain'); continue }
+              # The archive, its sha256 and unpacking - by hand, like Claude Code does it
+              $z = Join-Path $env:RUNNER_TEMP ($p.name + '.zip')
+              Invoke-WebRequest -UseBasicParsing -Uri $s.url -OutFile $z
+              $sha = (Get-FileHash -Algorithm SHA256 -LiteralPath $z).Hash.ToLowerInvariant()
+              if ($sha -ne $s.sha256) { Fail ($p.name + ': sha256 of the archive differs from the catalog') }
+              $d = Join-Path $env:RUNNER_TEMP ('unz-' + $p.name)
+              Expand-Archive -LiteralPath $z -DestinationPath $d -Force
+              if (-not (Test-Path (Join-Path $d '.claude-plugin\plugin.json'))) { Fail ($p.name + ': no plugin.json in the archive') }
+              # Claude Code installed exactly this archive: its version is the start of the sha
+              $i = @($inst.plugins.($p.name + '@korobeinikov-ai-windows'))[0]
+              if ($i.version -ne $s.sha256.Substring(0, 12)) { Fail ($p.name + ': installed version ' + $i.version + ' is not the archive ' + $s.sha256.Substring(0, 12)) }
+              if (-not (Test-Path (Join-Path $i.installPath '.claude-plugin\plugin.json'))) { Fail ($p.name + ': installed folder is empty') }
+              'ok ' + $p.name + ' ' + $s.sha256.Substring(0, 12) + ' -> ' + $i.installPath
+          }
+          $o = Join-Path $env:RUNNER_TEMP 'unz-osnova'
+          # Scripts keep LF after the archive (bash breaks on CR)
+          $crlf = @(Get-ChildItem $o -Recurse -File -Include *.sh, *.py | Where-Object { [IO.File]::ReadAllText($_.FullName).Contains("`r") })
+          if ($crlf.Count -gt 0) { Fail ('CRLF in scripts: ' + ($crlf.Name -join ', ')) }
+          # One domain in the package: the messenger of knowledge and the auto-update
+          $zn = [IO.File]::ReadAllText((Join-Path $o 'znaniya\znaniya.py'))
+          if (-not $zn.Contains('SERVER = "https://metod.korobeinikov.ai"')) { Fail 'znaniya.py does not go to the domain' }
+          # The shelf of Claude Code and the settings: the catalog from the domain, auto-update on
+          $km = Get-Content -Raw -Encoding UTF8 (Join-Path $env:USERPROFILE '.claude\plugins\known_marketplaces.json') | ConvertFrom-Json
+          $src = $km.'korobeinikov-ai-windows'.source
+          if ($src.source -ne 'url' -or $src.url -ne "$base/marketplace.json") { Fail ('known shelf source: ' + ($src | ConvertTo-Json -Compress)) }
+          $st = Get-Content -Raw -Encoding UTF8 (Join-Path $env:USERPROFILE '.claude\settings.json') | ConvertFrom-Json
+          $m = $st.extraKnownMarketplaces.'korobeinikov-ai-windows'
+          if ($m.autoUpdate -ne $true -or $m.source.source -ne 'url' -or $m.source.url -ne "$base/marketplace.json") { Fail ('auto-update setting: ' + ($m | ConvertTo-Json -Compress)) }
+          if ($m.source.PSObject.Properties.Name -contains 'repo') { Fail 'auto-update source still has repo' }
+          # The texts on the domain: the instruction leads to the install line, nobody sees the old server address
+          $cm = irm "$base/CLAUDE.md"
+          if (-not $cm.Contains('irm https://metod.korobeinikov.ai/windows/install.ps1 | iex')) { Fail 'CLAUDE.md on the domain has no install line' }
+          foreach ($u in "$base/CLAUDE.md", "$base/", "$base/install.ps1") {
+              $txt = [string](irm $u)
+              if ($txt -match 'up\.railway\.app|raw\.githubusercontent') { Fail ('old address in ' + $u) }
+          }
+          # A catalog with a wrong sha256: Claude Code must refuse the archive (only the stand-in sklad has it)
+          if (-not $env:S_DOMENA) {
+              claude plugin marketplace add "$base/plohoy.json" 2>&1 | Out-Host
+              $r = claude plugin install stroka@proverka-plohoy-sha 2>&1 | Out-String
+              $r
+              if ($r -notmatch 'integrity') { Fail 'Claude Code installed an archive with a wrong sha256' }
+              $l = claude plugin list 2>&1 | Out-String
+              if ($l -match 'stroka@proverka-plohoy-sha') { Fail 'the bad archive is in the plugin list' }
+              claude plugin marketplace remove proverka-plohoy-sha 2>&1 | Out-Host
+          }
+          if ($bad -gt 0) { exit 1 }
+          'new scheme: catalog and archives from the domain, sha256 matches, unpacked, installed exactly these, auto-update from the domain'
           exit 0
 
       - name: Посыльный за знаниями - как его запустит Claude Code (claude mcp list)
@@ -275,6 +380,17 @@ jobs:
               if ($LASTEXITCODE -ne 0) { $failed += $t.Name; 'FAILED: ' + $t.Name }
           }
           if ($failed.Count -gt 0) { 'Failed PowerShell tests: ' + ($failed -join ', '); exit 1 }
+          exit 0
+
+      - name: Склад на этой машине - журнал запросов (Claude Code брал архивы отсюда)
+        if: ${{ !cancelled() && !env.S_DOMENA }}
+        run: |
+          $log = Get-Content -Raw (Join-Path $env:RUNNER_TEMP 'sklad.log') -ErrorAction SilentlyContinue
+          $log
+          foreach ($n in 'osnova', 'stroka') {
+              if ($log -notmatch ('GET /windows/plugins/' + $n + '-[0-9a-f]{12}\.zip HTTP/1\.[01]" 200')) { 'no archive download of ' + $n + ' in the log'; exit 1 }
+          }
+          if ($log -notmatch 'GET /windows/install\.ps1 HTTP/1\.[01]" 200') { 'install.ps1 was not taken from the sklad'; exit 1 }
           exit 0
 
       - name: В логе нет значений ключей

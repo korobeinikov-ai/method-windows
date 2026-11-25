@@ -127,7 +127,7 @@ out=$(pv CLAUDE_CODE_GIT_BASH_PATH="$FAKE/net-takogo-faila"); code=$?
 out=$(pv PYTHONUTF8=); code=$?
 [ $code -eq 0 ] && echo "$out" | grep -q "⚠️ Русские буквы" && ok "проверка: без UTF-8 — предупреждение, не поломка" || bad "проверка: UTF-8 не замечен (код $code)"
 out=$(pv CLAUDE_CODE_USE_POWERSHELL_TOOL=1)
-echo "$out" | grep -q "METHOD_NO_LAUNCH=1; irm https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/install.ps1" \
+echo "$out" | grep -q "METHOD_NO_LAUNCH=1; irm https://metod.korobeinikov.ai/windows/install.ps1" \
   && ok "проверка: подсказка — строка подготовки целиком, переменные не съедены" || bad "проверка: в подсказке нет строки подготовки"
 if [ $WIN = 1 ]; then
   # так Claude Code подставляет пути в команды из SKILL.md: с обратными слешами (и вперемешку с прямыми)
@@ -165,11 +165,19 @@ cmp -s "$K" "$ROOT_T/do" && [ -z "$out" ] && [ "$(nbak)" = 0 ] \
 rm -rf "$KD" "$ROOT_T/svoe" "$ROOT_T/do"
 
 # --- автообновление: всем, без вопроса, только оно
+KATALOG='https://metod.korobeinikov.ai/windows/marketplace.json'
 N obnovleniya >/dev/null
-J "s['extraKnownMarketplaces']['korobeinikov-ai-windows']['autoUpdate'] is True and s['extraKnownMarketplaces']['korobeinikov-ai-windows']['source']['repo']=='korobeinikov-ai/method-windows' and 'model' not in s and 'permissions' not in s" \
-  && ok "обновления: полка Windows включена отдельно от остальных настроек" || bad "обновления: не включились или притащили лишнее"
+J "s['extraKnownMarketplaces']['korobeinikov-ai-windows']['autoUpdate'] is True and s['extraKnownMarketplaces']['korobeinikov-ai-windows']['source']=={'source': 'url', 'url': '$KATALOG'} and 'model' not in s and 'permissions' not in s" \
+  && ok "обновления: полка Windows — со склада метода на домене, отдельно от остальных настроек" || bad "обновления: не включились, не со склада или притащили лишнее"
 N obnovleniya | grep -q "уже включено" && ok "обновления: повторно — «уже включено»" || bad "обновления: повтор что-то меняет"
-grep -q 'korobeinikov-ai/method"' "$S/nastroyki.json" && bad "обновления: в настройках адрес полки Mac" || ok "обновления: адрес полки Mac нигде не остался"
+grep -q 'korobeinikov-ai/method' "$S/nastroyki.json" && bad "обновления: в настройках адрес GitHub-полки" || ok "обновления: адреса GitHub-полок нигде не остались"
+rm -f "$C" "$FAKE/.claude"/settings.backup-*.json
+# стояла прежняя полка с GitHub: источник заменяется целиком (поле repo рядом с url сломало бы его)
+mkdir -p "$FAKE/.claude"
+printf '{"extraKnownMarketplaces":{"korobeinikov-ai-windows":{"source":{"source":"github","repo":"korobeinikov-ai/method-windows"},"autoUpdate":true}}}\n' > "$C"
+N obnovleniya >/dev/null
+J "s['extraKnownMarketplaces']['korobeinikov-ai-windows']['source']=={'source': 'url', 'url': '$KATALOG'}" \
+  && ok "обновления: прежний источник с GitHub заменён целиком" || bad "обновления: прежний источник смешался с новым"
 rm -f "$C" "$FAKE/.claude"/settings.backup-*.json
 
 # --- настройки

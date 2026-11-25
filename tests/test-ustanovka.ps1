@@ -91,26 +91,42 @@ Check 'Пакет метода: osnova@korobeinikov-ai-windows стоит в Cla
 
 # --- тексты установки: ссылки на эту версию, ничего от чужой --------------------------------
 $root = Split-Path -Parent $PSScriptRoot
+$installerPath = Join-Path $root 'install.ps1'
 Check 'README: первая строка про версию для Windows на месте' {
     $first = Get-Content -Path (Join-Path $root 'README.md') -Encoding UTF8 -TotalCount 1
     $first.StartsWith('> Версия для Windows.') -and $first.Contains('11.11.2026')
 }
-Check 'README: фраза ведёт к инструкции этой версии, инструкция — к install.ps1 этой версии' {
-    ((Get-Content -Raw -Encoding UTF8 -Path (Join-Path $root 'README.md')) -match 'https://raw\.githubusercontent\.com/korobeinikov-ai/method-windows/main/CLAUDE\.md') -and
-    ((Get-Content -Raw -Encoding UTF8 -Path (Join-Path $root 'CLAUDE.md')) -match 'irm https://raw\.githubusercontent\.com/korobeinikov-ai/method-windows/main/install\.ps1 \| iex')
+Check 'README: фраза ведёт к инструкции этой версии на складе метода, инструкция — к install.ps1 оттуда же, Mac — к своей' {
+    $claudeMd = Get-Content -Raw -Encoding UTF8 -Path (Join-Path $root 'CLAUDE.md')
+    ((Get-Content -Raw -Encoding UTF8 -Path (Join-Path $root 'README.md')) -match 'https://metod\.korobeinikov\.ai/windows/CLAUDE\.md') -and
+    ($claudeMd -match 'irm https://metod\.korobeinikov\.ai/windows/install\.ps1 \| iex') -and
+    ($claudeMd -match 'https://metod\.korobeinikov\.ai/CLAUDE\.md') -and
+    ((Get-Content -Raw -Encoding UTF8 -Path $installerPath) -match "Katalog = 'https://metod\.korobeinikov\.ai/windows/marketplace\.json'")
 }
 Check 'Полка: marketplace.json называется korobeinikov-ai-windows' {
     $mp = Get-Content -Raw -Encoding UTF8 -Path (Join-Path $root '.claude-plugin\marketplace.json') | ConvertFrom-Json
     ($mp.name -eq 'korobeinikov-ai-windows') -and ($mp.plugins[0].name -eq 'osnova')
 }
 Check 'Тексты установки: нет следов установки Mac (brew, xcode, install.sh, полка Mac) и чужих путей; Mac — только ссылка на его инструкцию' {
-    $bad = 'brew|xcode|install\.sh|korobeinikov-ai-method|korobeinikov-ai/method(?!-windows|/main/CLAUDE\.md)|/Users/[A-Za-z]'
+    # Прежние адреса (GitHub-полки, сервер на Railway) — тоже следы: людям только домен метода
+    $bad = 'brew|xcode|install\.sh|korobeinikov-ai-method|korobeinikov-ai/method|raw\.githubusercontent\.com/korobeinikov-ai|up\.railway\.app|/Users/[A-Za-z]'
     $hits = @()
     foreach ($f in 'README.md', 'CLAUDE.md', 'install.ps1', '.claude-plugin\marketplace.json') {
         if ((Get-Content -Raw -Encoding UTF8 -Path (Join-Path $root $f)) -match $bad) { $hits += $f }
     }
     if ($hits.Count -gt 0) { throw ('следы чужой версии в: ' + ($hits -join ', ')) }
     $true
+}
+# Шаблон личной ссылки: домен метода и прежний адрес (выданные раньше ссылки) — да, остальное — нет
+$linkRe = [regex]::Match([IO.File]::ReadAllText($installerPath, [Text.Encoding]::UTF8), "\`$d -match '([^']+)'").Groups[1].Value
+Check 'Личная ссылка: шаблон найден в install.ps1' { [bool]$linkRe }
+$old = 'https://korobeinikov-ai.up.' + 'railway.app/u/abc_-1'  # прежний адрес — по частям: в текстах его не должно быть
+foreach ($l in @('https://metod.korobeinikov.ai/u/abcDEF_-123', $old)) {
+    Check "Личная ссылка принимается: $($l.Substring(0, 22))…" { $l -match $linkRe }
+}
+foreach ($l in @('https://evil.example.com/u/abc', 'http://metod.korobeinikov.ai/u/abc', 'https://metod.korobeinikov.ai/u/abc";calc;"',
+                 'https://metod.korobeinikov.ai.evil.com/u/abc', 'https://metod.korobeinikov.ai/u/')) {
+    Check "Чужая ссылка не принимается: $l" { $l -notmatch $linkRe }
 }
 
 # --- слияние настроек Claude: чужое остаётся, наше дописывается --------------------------------

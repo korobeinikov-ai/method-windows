@@ -46,7 +46,7 @@ fi
 # Починка одна на обе тревоги — печатаем один раз
 if [ -n "$missing$warn" ]; then
   cat <<EOF
-Почини сам: в фоне (до 15 минут) \`powershell.exe -NoProfile -Command '\$env:METHOD_NO_LAUNCH=1; irm https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/install.ps1 | iex'\`, потом скажи человеку
+Почини сам: в фоне (до 15 минут) \`powershell.exe -NoProfile -Command '\$env:METHOD_NO_LAUNCH=1; irm https://metod.korobeinikov.ai/windows/install.ps1 | iex'\`, потом скажи человеку
 полностью закрыть Claude (и значок у часов внизу справа: правой кнопкой → выход) и открыть снова: новые программы Claude увидит только так.
 EOF
 fi
