@@ -81,7 +81,7 @@ if venv "$SVOY"; then
 else bad "вторая среда .venv не создалась"; fi
 
 echo "== 4. Обновить.bat по правилам Windows запускает Python проекта"
-# Текст навыка — с сервера, общий с Mac (Обновить.command); как сделать .bat, говорит rules/WINDOWS.md
+# Текст навыка общий с Mac (Обновить.command); как сделать .bat, говорит rules/WINDOWS.md
 RULE=$(grep 'Обновить.bat' "$PKG/rules/WINDOWS.md")
 for frag in '@echo off' 'cd /d "%~dp0"' '.venv\Scripts\python.exe' 'pause'; do
   grep -qF -- "$frag" <<<"$RULE" && ok "WINDOWS.md: для Обновить.bat есть «$frag»" || bad "WINDOWS.md: для Обновить.bat нет «$frag»"

@@ -25,7 +25,7 @@ else no "Команды могут идти мимо охраны через Pow
 if [ -n "${CLAUDE_CODE_GIT_BASH_PATH:-}" ]; then
   if [ -f "$CLAUDE_CODE_GIT_BASH_PATH" ]; then ok "Git Bash найден"
   else no "Claude ищет Git Bash не там, где он лежит" "$INSTALL"; fi
-else warn "Путь к Git Bash не записан: опыт автора с сервера может не открыться" "$INSTALL"; fi
+else warn "Путь к Git Bash не записан: Claude может не найти Git Bash сам" "$INSTALL"; fi
 
 if [ "${PYTHONUTF8:-}" = 1 ]; then ok "Русские буквы (UTF-8) включены"
 else warn "Русские буквы в программах могут ломаться" "$INSTALL"; fi

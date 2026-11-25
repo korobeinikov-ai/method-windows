@@ -165,23 +165,20 @@ jobs:
           if ($out -notmatch '\u0418\u0422\u041e\u0413: \u2705') { 'no ok result line'; exit 1 }
           exit 0
 
-      - name: \u0427\u0430\u0442 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0438 - \u043b\u0438\u0447\u043d\u0430\u044f \u0441\u0441\u044b\u043b\u043a\u0430, \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0438 \u043f\u0440\u043e\u0435\u043a\u0442 \u043f\u043e \u043f\u0443\u0442\u044f\u043c \u0438\u0437 \u0432\u044b\u0432\u043e\u0434\u0430 \u043f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u043a\u0438
+      - name: \u0427\u0430\u0442 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0438 - \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0438 \u043f\u0440\u043e\u0435\u043a\u0442 \u043f\u043e \u043f\u0443\u0442\u044f\u043c \u0438\u0437 \u0432\u044b\u0432\u043e\u0434\u0430 \u043f\u043e\u0434\u0433\u043e\u0442\u043e\u0432\u043a\u0438
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           $ErrorActionPreference = 'Continue'
           . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
           $env:CLAUDE_CODE_EXECPATH = (Get-Command claude -ErrorAction SilentlyContinue).Source
           Remove-Item Env:METHOD_NO_LAUNCH -ErrorAction SilentlyContinue
-          # A link the server does not know: the real server answers 410 with the reason, and the reason must reach Claude in Russian
-          $env:METHOD_DOSTUP = 'https://korobeinikov-ai.up.railway.app/u/netakoyssylki123'
           # A separate process with its whole output read, like Claude's own tool runs it (Out-Host lines go to stdout there)
           $out = powershell -NoProfile -ExecutionPolicy Bypass -Command 'Get-Content install.ps1 -Raw -Encoding UTF8 | Invoke-Expression' 2>&1 | Out-String
           $out
-          if ($out -notmatch '\u0414\u041e\u0421\u0422\u0423\u041f: \u274c') { 'a refused access link is not reported'; exit 1 }
-          if ($out -notmatch '\u0441\u0440\u0430\u0431\u043e\u0442\u0430\u043b\u0430') { 'the reason of the refusal did not reach Claude'; exit 1 }
-          # The settings block and the check reach Claude too
+          # No link: the open version installs everything without one, and no access line reaches Claude
+          if ($out -cmatch '\u0414\u041e\u0421\u0422\u0423\u041f:') { 'an access line without a link'; exit 1 }
+          # The settings block and the check reach Claude
           if ($out -notmatch '\u041e\u0445\u0440\u0430\u043d\u0430 \u0441\u0435\u043a\u0440\u0435\u0442\u043e\u0432 \u0441\u0440\u0430\u0431\u0430\u0442\u044b\u0432\u0430\u0435\u0442') { 'the guard check is not in the output'; exit 1 }
-          Remove-Item Env:METHOD_DOSTUP -ErrorAction SilentlyContinue
           # Paths for the next steps, like Claude reads them: BASH, PY, PROVODNIK, DANNYE
           $P = -join [char[]](0x41F, 0x420, 0x41E, 0x412, 0x41E, 0x414, 0x41D, 0x418, 0x41A)
           $D = -join [char[]](0x414, 0x410, 0x41D, 0x41D, 0x42B, 0x415)
@@ -209,17 +206,7 @@ jobs:
           $hook = & $m['BASH'] ($env:CLAUDE_PLUGIN_ROOT + '/hooks/session-start.sh') 2>&1 | Out-String
           Pop-Location
           if ($hook -notmatch 'uchet prodazh') { $hook; 'the next session does not know the task'; exit 1 }
-          'install chat: refused a foreign link, applied settings, created the project, the next session knows the task'
-          exit 0
-
-      - name: Посыльный за знаниями - как его запустит Claude Code (claude mcp list)
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: |
-          $ErrorActionPreference = 'Continue'
-          . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
-          $out = claude mcp list 2>&1 | Out-String
-          $out
-          if ($out -notmatch 'znaniya') { 'the knowledge server of the package is not listed'; exit 1 }
+          'install chat: applied settings, created the project, the next session knows the task'
           exit 0
 
       - name: Инструменты пакета (gitleaks, ruff и др.) - как ставит проводник

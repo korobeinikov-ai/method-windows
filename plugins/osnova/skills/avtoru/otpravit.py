@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Отправляет заметку автору пакета: на сервер метода по личному ключу человека, оттуда — автору в Telegram.
-Видит только автор. Ключа нет (метод ставили без личной ссылки) — не уходит, текст сохраняется в заметках.
+"""Заметка автору пакета: записывается у человека в ~/vibecoding/zametki-dlya-avtora.md. Пакет сам её никуда не
+отправляет: автору её передаёт человек — там, где они общаются.
 
-  otpravit.py --gde "<навык и шаг>" --tip затык|запрос|удача   < текст
-  otpravit.py --zametki     — накопленные заметки (~/vibecoding/zametki-dlya-avtora.md); ушли — файл удаляется
+  otpravit.py --gde "<навык и шаг>" --tip затык|запрос|удача   < текст   — дописать заметку
+  otpravit.py --zametki     — накопленные заметки одним текстом, чтобы человек отправил их автору
 
-Перед отправкой: длина, сторож секретов (gitleaks), домашняя папка → «~».
-Ключ берёт посыльный пакета (znaniya.py) сам, мимо разговора.
-Код выхода: 0 — ушло; 1 — не ушло (текст сохранён в заметки, причина в ответе); 2 — текст не принят.
+Перед записью: длина, сторож секретов (gitleaks), домашняя папка → «~».
+Код выхода: 0 — записано (или показано); 1 — не записано (причина в ответе); 2 — текст не принят.
 """
 import datetime
 import os
@@ -22,9 +21,6 @@ ROOT = Path(__file__).resolve().parents[2]
 os.environ["NoDefaultCurrentDirectoryInExePath"] = "1"  # Windows не ищет программы в текущей папке (там может лежать подмена)
 TIPS = ("затык", "запрос", "удача")
 LIMIT = 3000
-
-sys.path.insert(0, str(ROOT / "znaniya"))
-import znaniya  # посыльный пакета: ключ и адрес сервера — в одном месте
 
 
 def nayti(imya):
@@ -64,61 +60,46 @@ def footer():
     return f"пакет {ver} · {platform.platform(terse=True)} · Claude Code {cc} · {datetime.date.today():%d.%m.%Y}"
 
 
-def save_locally(gde, tip, text):
-    NOTES.parent.mkdir(parents=True, exist_ok=True)
-    line = " ".join(text.split())[:300]
-    with NOTES.open("a", encoding="utf-8") as f:
-        f.write(f"{datetime.date.today():%d.%m.%Y} | {gde} | {tip} | {line} (не ушло автору — отправить позже)\n")
-
-
 def main(argv):
     for potok in (sys.stdin, sys.stdout):  # Windows без этого ломает русские буквы и значки
         potok.reconfigure(encoding="utf-8", errors="replace")
-    from_notes = "--zametki" in argv
-    if from_notes:
+    if "--zametki" in argv:
         text = NOTES.read_text(encoding="utf-8").strip() if NOTES.is_file() else ""
         if not text:
-            print("Заметок для автора нет — отправлять нечего.")
+            print("Заметок для автора нет.")
             return 0
         n = sum(1 for s in text.splitlines() if "|" in s)
-        gde, tip = "заметки по ходу работы", "заметки"
-        text = f"Заметок: {n}\n{text}"
-    else:
-        gde, tip, text = opt(argv, "--gde"), opt(argv, "--tip"), sys.stdin.read().strip()
-        if tip not in TIPS or not gde or len(gde) > 80 or not text:
-            print(f"❌ Нужно: --gde «навык и шаг» (до 80 знаков), --tip {' | '.join(TIPS)} и текст во входе.")
-            return 2
+        print(f"Заметки для автора ({n}) — человек отправляет их автору сам, там, где они общаются:\n\n{text}")
+        return 0
+    gde, tip, text = opt(argv, "--gde"), opt(argv, "--tip"), sys.stdin.read().strip()
+    if tip not in TIPS or not gde or len(gde) > 80 or not text:
+        print(f"❌ Нужно: --gde «навык и шаг» (до 80 знаков), --tip {' | '.join(TIPS)} и текст во входе.")
+        return 2
     text = text.replace(str(Path.home()), "~").replace(Path.home().as_posix(), "~")
     if len(text) > LIMIT:
         print(f"❌ Слишком длинно ({len(text)} знаков, можно до {LIMIT}) — сократи до сути.")
         return 2
 
     if not nayti("gitleaks"):
-        reason = f"нет сторожа секретов — запусти: bash {ROOT.as_posix()}/skills/start/instrumenty.sh"
+        print(f"⚠️ Нет сторожа секретов, текст на ключи не проверен — поставить: bash {ROOT.as_posix()}/skills/start/instrumenty.sh")
     else:
         code, _ = run(["gitleaks", "stdin", "--no-banner", "--redact", "--config", str(ROOT / "skelet" / ".gitleaks.toml")], text)
         if code == 1:
-            print("❌ В тексте что-то похожее на ключ или пароль — убери его и отправь снова. Ничего не ушло.")
+            print("❌ В тексте что-то похожее на ключ или пароль — убери его и запиши снова. Ничего не записано.")
             return 2
-        reason = None if code == 0 else f"сторож секретов не запустился (код {code})"
+        if code != 0:
+            print(f"⚠️ Сторож секретов не запустился (код {code}), текст на ключи не проверен.")
 
-    if not reason:
-        code, out = znaniya.zametka({"gde": gde, "tip": tip, "tekst": text, "podval": footer()})
-        if code == 200:
-            if from_notes:
-                NOTES.unlink()
-            print("✅ Ушло автору в Telegram.")
-            return 0
-        reason = {
-            None: "у человека нет личного доступа к методу — покажи ему текст и скажи отправить автору там, где они общаются",
-            401: "ключ к методу не подошёл — человеку нажать в боте метода «Новая строка установки» и прислать текст сюда",
-            403: "доступ к методу закрыт автором — скажи человеку написать автору там, где они общаются",
-            0: "сервер метода не ответил — попробуем позже",
-        }.get(code, f"сервер метода не принял: {out.strip()[:200] or code}")
-    if not from_notes:
-        save_locally(gde, tip, text)
-    print(f"❌ Не ушло: {reason}.\nТекст сохранён в заметках для автора — отправим позже.")
-    return 1
+    try:
+        NOTES.parent.mkdir(parents=True, exist_ok=True)
+        with NOTES.open("a", encoding="utf-8") as f:
+            f.write(f"{datetime.date.today():%d.%m.%Y} | {gde} | {tip} | {' '.join(text.split())} | {footer()}\n")
+    except OSError as e:
+        print(f"❌ Не записал заметку в {NOTES}: {e}")
+        return 1
+    print("✅ Записал в заметки для автора (~/vibecoding/zametki-dlya-avtora.md). Автору её отправляет человек сам,"
+          " там, где они общаются.")
+    return 0
 
 
 if __name__ == "__main__":

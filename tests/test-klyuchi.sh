@@ -316,14 +316,14 @@ expect 1 "файл с русским именем собирается и ухо
 offline "$(wpath "$TELEGRAM")" kto 123456
 expect 1 "telegram.py kto доходит до сети" "Нет связи с Telegram"
 
-echo "== 6. Заметка автору (otpravit.py): русский текст, домашняя папка, без личного доступа"
+echo "== 6. Заметка автору (otpravit.py): русский текст, домашняя папка, запись у человека"
 TH="$T/home"; mkdir -p "$TH"
 avtoru() { ( cd "$PROJ" && KAI_KLYUCH= HOME="$TH" USERPROFILE="$(wpath "$TH")" GH_CONFIG_DIR="$T/gh" GH_TOKEN= GITHUB_TOKEN= GH_ENTERPRISE_TOKEN= "${PY[@]}" "$(wpath "$AVTORU")" "$@" ) >"$T/last.out" 2>&1; RC=$?; cat "$T/last.out" >>"$T/all.out"; }
 avtoru </dev/null
 expect 2 "без аргументов: «Нужно: --gde …», ничего не ушло" "Нужно:"
 printf 'Проверка: русский текст и значок ✅ в папке %s\n' "$(wpath "$TH")" >"$T/zametka.in"
 avtoru --gde "навык «railway», шаг 3" --tip затык <"$T/zametka.in"
-expect 1 "без личного доступа заметка не уходит, причина названа" "нет личного доступа"
+expect 0 "заметка записана у человека, отправлять её автору — ему самому" "Записал в заметки"
 ZAMETKI="$TH/vibecoding/zametki-dlya-avtora.md"
 if [ -f "$ZAMETKI" ]; then
   ZAMETKI_W="$(wpath "$ZAMETKI")" "${PY[@]}" -c '

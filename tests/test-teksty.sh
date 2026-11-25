@@ -16,17 +16,26 @@ while IFS= read -r f; do FILES+=("$f"); done < <(
     \( -name '*.md' -o -name '*.json' -o -name '*.py' -o -name '*.txt' -o -name '.python-version' \) | sort)
 cd "$PKG" || exit 1
 echo "Проверяем файлов: ${#FILES[@]}"
+# Тексты навыков (.md) общие с Mac: python3 и .venv/bin в них переведены при сборке, остальное по-маковски написанное
+# переводит rules/WINDOWS.md. Слова про Mac ищем только в своих файлах Windows-версии.
+OWN=()
+for f in "${FILES[@]}"; do
+  [[ $f =~ ^skills/(railway|telegram-bot|baza|premortem|svoy-kompyuter|systematic-debugging)/[^/]*\.md$ ]] || OWN+=("$f")
+done
 
 # scan <описание> <шаблон> [исключить-файл]: в тексте не должно быть совпадений (строки-шебанги не считаем)
+SCAN=("${FILES[@]}")
 scan() {
   local what=$1 pat=$2 skip=${3:-NONE} hits
-  hits=$(grep -n -E -- "$pat" "${FILES[@]}" 2>/dev/null | grep -v -E ":[0-9]+:#!" | grep -v -E "^$skip:" | head -5)
+  hits=$(grep -n -E -- "$pat" "${SCAN[@]}" 2>/dev/null | grep -v -E ":[0-9]+:#!" | grep -v -E "^$skip:" | head -5)
   if [ -n "$hits" ]; then bad "$what"; printf '%s\n' "$hits" | cut -c1-160 | sed 's/^/    /'; else ok "$what"; fi
 }
-scan "нет слов про Mac и его инструменты" '\bMac\b|macOS|mac_ver|Homebrew|\bbrew\b|xcode-select|pbpaste|pbcopy|osascript|\.command|open -a|/opt/homebrew|⌘' 'rules/WINDOWS.md'
+SCAN=("${OWN[@]}")
+scan "нет слов про Mac и его инструменты (свои файлы Windows-версии)" '\bMac\b|macOS|mac_ver|Homebrew|\bbrew\b|xcode-select|pbpaste|pbcopy|osascript|\.command|open -a|/opt/homebrew|⌘' 'rules/WINDOWS.md'
+scan "нет голой команды open и chmod (свои файлы Windows-версии)" '(`|^|[ (])open [a-z"$]|chmod ' 'rules/WINDOWS.md'
+SCAN=("${FILES[@]}")
 scan "нет python3 в командах (на Windows это часто пустышка)" 'python3' 'rules/WINDOWS.md'
 scan "нет .venv/bin и Cmd" '\.venv/bin|Cmd\b' 'rules/WINDOWS.md'
-scan "нет голой команды open и chmod" '(`|^|[ (])open [a-z"$]|chmod ' 'rules/WINDOWS.md'
 scan "нет абсолютных путей чужого компьютера" '/Users/[A-Za-z]|C:\\Users\\[A-Za-z]'
 scan "нет ссылок на полку и витрину Mac" 'korobeinikov-ai-method|korobeinikov-ai/method([^-]|$)'
 

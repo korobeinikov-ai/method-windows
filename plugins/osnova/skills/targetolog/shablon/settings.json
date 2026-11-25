@@ -1,7 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "mcp__plugin_osnova_znaniya__poluchit_navyk",
       "mcp__meta-ads__ads_get_ad_accounts",
       "mcp__meta-ads__ads_get_ad_account_pages",
       "mcp__meta-ads__ads_get_pages_for_business",
