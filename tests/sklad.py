@@ -1,13 +1,14 @@
 """Склад метода на этой машине — для проверки на настоящей Windows (CI) без настоящего сервера.
 
-  python -I tests/sklad.py ПАПКА_РЕПО СЕРТИФИКАТ.crt КЛЮЧ.key
+  python -I tests/sklad.py ПАПКА_РЕПО СЕРТИФИКАТ.crt КЛЮЧ.key [ЖУРНАЛ]
 
 Собирает склад из этой папки так, как его кладёт выпуск мастерской: каталог .claude-plugin/marketplace.json, где каждый
 пакет plugins/* — zip-архив с источником archive и sha256 на https://metod.korobeinikov.ai/windows/plugins/…, рядом
 инструкция, установщик и страница. Отдаёт по HTTPS на порту 443 теми же адресами и заголовками, что сервер метода.
 Домен сюда ведёт запись в hosts (её делает проверка), сертификат проверка делает доверенным. Ещё отдаёт
 /windows/plohoy.json — тот же каталог с неверной sha256: Claude Code должен отказаться ставить из него.
-Остальные адреса — 404. Журнал запросов — в stderr: по нему видно, что Claude Code брал архивы отсюда.
+Остальные адреса — 404. Журнал запросов — в stderr или дописывается в файл ЖУРНАЛ: по нему видно, что Claude Code
+брал архивы отсюда.
 """
 import hashlib
 import http.server
@@ -51,7 +52,9 @@ def sobrat(repo):
     return otvety
 
 
-def main(repo, cert, key):
+def main(repo, cert, key, zhurnal=None):
+    if zhurnal:  # запуск без окна (проверка зовёт его мимо своего шага): журнал — в файл, построчно
+        sys.stdout = sys.stderr = open(zhurnal, "a", buffering=1, encoding="utf-8")  # noqa: SIM115 — открыт до конца
     otvety = sobrat(Path(repo))
 
     class H(http.server.BaseHTTPRequestHandler):
@@ -81,6 +84,6 @@ def main(repo, cert, key):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
+    if len(sys.argv) not in (4, 5):
         sys.exit(__doc__)
     main(*sys.argv[1:])

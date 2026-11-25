@@ -96,16 +96,23 @@ jobs:
           if (-not $ip) { 'no network address'; exit 1 }
           Add-Content -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Value "`r`n$ip metod.korobeinikov.ai" -Encoding ASCII
           Clear-DnsClientCache
-          $a = @('-I', ('"' + (Join-Path $PWD 'tests\sklad.py') + '"'), ('"' + $PWD + '"'), ('"' + "$t\sklad.crt" + '"'), ('"' + "$t\sklad.key" + '"'))
-          $p = Start-Process -FilePath (Join-Path $t 'srvpy\python.exe') -ArgumentList $a -RedirectStandardOutput "$t\sklad.out" -RedirectStandardError "$t\sklad.log" -WindowStyle Hidden -PassThru
-          $ok = $false
-          for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
-              Start-Sleep -Seconds 1
-              try { $ok = (Invoke-WebRequest -UseBasicParsing -Uri 'https://metod.korobeinikov.ai/windows/marketplace.json').StatusCode -eq 200 } catch { $_.Exception.Message }
-              if ($p.HasExited) { break }
+          # The runner stops a step's processes when the step ends: every step that needs the sklad calls this helper first.
+          # It starts the server through WMI (outside the step), if it does not answer yet.
+          $zhiv = @"
+          `$u = 'https://metod.korobeinikov.ai/windows/marketplace.json'
+          function Test-Sklad { try { return (Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 -Uri `$u).StatusCode -eq 200 } catch { 'sklad: not answering yet (' + `$_.Exception.Message + ')' | Out-Host; return `$false } }
+          if (-not (Test-Sklad)) {
+              `$c = '"$t\srvpy\python.exe" -I "$env:GITHUB_WORKSPACE\tests\sklad.py" "$env:GITHUB_WORKSPACE" "$t\sklad.crt" "$t\sklad.key" "$t\sklad.log"'
+              `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = `$c; CurrentDirectory = '$t' }
+              'sklad: started, pid ' + `$r.ProcessId + ', code ' + `$r.ReturnValue | Out-Host
+              `$ok = `$false
+              for (`$i = 0; `$i -lt 30 -and -not `$ok; `$i++) { Start-Sleep -Seconds 1; `$ok = Test-Sklad }
+              if (-not `$ok) { Get-Content '$t\sklad.log' -ErrorAction SilentlyContinue | Out-Host; throw 'the stand-in sklad does not answer on https://metod.korobeinikov.ai' }
           }
-          Get-Content "$t\sklad.out", "$t\sklad.log" -ErrorAction SilentlyContinue
-          if (-not $ok) { 'the stand-in sklad did not answer on https://metod.korobeinikov.ai'; exit 1 }
+          "@
+          Set-Content -Path (Join-Path $t 'sklad-zhiv.ps1') -Value $zhiv -Encoding ASCII
+          . (Join-Path $t 'sklad-zhiv.ps1')
+          Get-Content "$t\sklad.log"
           'sklad: https://metod.korobeinikov.ai -> ' + $ip + ' (this machine)'
 
       - name: Установка с чистой машины (без Git и Python)
@@ -148,6 +155,7 @@ jobs:
           'clean machine: no git, no real python, python = ' + [string]$py.Source
           # 4. The install line like a person runs it: from the domain, through iex
           $ErrorActionPreference = 'Continue'
+          $h = Join-Path $env:RUNNER_TEMP 'sklad-zhiv.ps1'; if (Test-Path $h) { . $h }  # the stand-in sklad answers
           irm https://metod.korobeinikov.ai/windows/install.ps1 | iex
           if ($LASTEXITCODE -ne 0) { exit 1 }
           # The final checkout step needs git: show it the installed one
@@ -158,6 +166,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          $h = Join-Path $env:RUNNER_TEMP 'sklad-zhiv.ps1'; if (Test-Path $h) { . $h }  # the stand-in sklad answers
           claude --version
           if ($LASTEXITCODE -ne 0) { exit 1 }
           claude plugin validate .
@@ -180,6 +189,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          $h = Join-Path $env:RUNNER_TEMP 'sklad-zhiv.ps1'; if (Test-Path $h) { . $h }  # the stand-in sklad answers
           # The app has its own copy of Claude: its path comes in CLAUDE_CODE_EXECPATH, a claude command may be absent
           $c = (Get-Command claude -ErrorAction SilentlyContinue).Source
           if (-not $c) { 'claude is missing'; exit 1 }
@@ -207,6 +217,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          $h = Join-Path $env:RUNNER_TEMP 'sklad-zhiv.ps1'; if (Test-Path $h) { . $h }  # the stand-in sklad answers
           $env:CLAUDE_CODE_EXECPATH = (Get-Command claude -ErrorAction SilentlyContinue).Source
           Remove-Item Env:METHOD_NO_LAUNCH -ErrorAction SilentlyContinue
           # A link the server does not know: the real server answers 410 with the reason, and the reason must reach Claude in Russian.
@@ -256,6 +267,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          $h = Join-Path $env:RUNNER_TEMP 'sklad-zhiv.ps1'; if (Test-Path $h) { . $h }  # the stand-in sklad answers
           $base = 'https://metod.korobeinikov.ai/windows'
           $bad = 0
           function Fail($m) { 'FAIL: ' + $m; $script:bad++ }
@@ -368,6 +380,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          $h = Join-Path $env:RUNNER_TEMP 'sklad-zhiv.ps1'; if (Test-Path $h) { . $h }  # the stand-in sklad answers
           $logs = Join-Path $env:RUNNER_TEMP 'logs'
           New-Item -ItemType Directory -Force -Path $logs | Out-Null
           $failed = @()
