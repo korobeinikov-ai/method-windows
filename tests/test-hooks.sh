@@ -312,7 +312,7 @@ echo "== verify-gate + verify-evidence: «готово = доказано»"
 LOGDIR=$(PYX -c 'import tempfile; print(tempfile.gettempdir())' | crlf)
 vg() { run verify-gate.py "$(J "git commit -m x" "$1" PreToolUse "${2:-Bash}" | sed "s/^{/{\"session_id\":\"$SID\",/")" "$1"; }
 ev() { run verify-evidence.py "{\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"${3:-Bash}\",\"tool_input\":{\"command\":\"$(jesc "$1")\"},\"session_id\":\"$SID\"}" "$2"; }
-T=$(mkrepo); echo "x = 1" > "$T/a.py"
+T=$(mkrepo); echo "x = 1" > "$T/a.py"; G "$T" add a.py
 blocked() { vg "$@" | grep -q '"block"'; }
 blocked "$(mixed "$T")" && ok "gate: коммит кода без проверки блокируется" || bad "gate: коммит без проверки прошёл"
 blocked "$(mixed "$T")" PowerShell && ok "gate: то же через PowerShell" || bad "gate: через PowerShell коммит без проверки прошёл"
@@ -341,13 +341,28 @@ ev 'python a.py' "$T" PowerShell
 [ -z "$(vg "$(mixed "$T")" PowerShell)" ] && ok "gate: проверка из PowerShell засчитывается" || bad "gate: проверка из PowerShell не засчитана"
 printf '%s' "{\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"C:\\\\x\\\\Скриншот.PNG\"},\"session_id\":\"$SID\"}" | PYX "$HM/verify-evidence.py" >/dev/null 2>&1
 [ -z "$(vg "$(mixed "$T")")" ] && ok "gate: скриншот Скриншот.PNG (большими буквами) — улика" || bad "gate: скриншот в верхнем регистре не засчитан"
-rm -f "$T/a.py"; echo "# заметка" > "$T/README.MD"
+G "$T" rm -q --cached a.py; rm -f "$T/a.py"; echo "# заметка" > "$T/README.MD"; G "$T" add README.MD
 [ -z "$(vg "$(mixed "$T")")" ] && ok "gate: только документы (README.MD) — без проверки" || bad "gate: документы заблокированы"
 echo "x = 1" > "$T/a.py"
 out=$(run verify-gate.py "$(J 'VERIFY_OK=1 git commit -m x' "$(mixed "$T")")" "$T")
 [ -z "$out" ] && ok "gate: VERIFY_OK=1 — осознанный пропуск" || bad "gate: VERIFY_OK=1 не сработал"
 out=$(run verify-gate.py "$(J '$env:VERIFY_OK=1; git commit -m x' "$(mixed "$T")" PreToolUse PowerShell)" "$T")
 [ -z "$out" ] && ok "gate: VERIFY_OK=1 в записи PowerShell — осознанный пропуск" || bad "gate: VERIFY_OK=1 из PowerShell не сработал"
+# решает то, что реально сохраняется, а не вся папка: рядом несохранённый код — документы всё равно проходят
+vgc() { run verify-gate.py "$(J "$1" "$(mixed "$2")" PreToolUse "${3:-Bash}" | sed "s/^{/{\"session_id\":\"$SID\",/")" "$2"; }
+T=$(mkrepo); echo "x = 1" > "$T/a.py"; G "$T" add a.py; G "$T" commit -qm a; echo "x = 2" > "$T/a.py"; mkdir "$T/src"
+echo "y = 1" > "$T/src/b.py"; echo "# заметка" > "$T/README.md"
+[ -z "$(vgc 'git add README.md && git commit -m "заметка; про | и &&"' "$T")" ] \
+  && ok "gate: только документы — без проверки, хотя рядом несохранённый код" || bad "gate: документы заблокированы из-за кода рядом"
+[ -z "$(vgc 'git add README.md; git commit -m x' "$T" PowerShell)" ] && ok "gate: то же в PowerShell" || bad "gate: PowerShell — документы заблокированы"
+vgc 'git commit -am x' "$T" | grep -q '"block"' && ok "gate: commit -a с кодом — нужна проверка" || bad "gate: commit -a с кодом прошёл"
+vgc 'git add . && git commit -m x' "$T" | grep -q '"block"' && ok "gate: git add . с кодом — нужна проверка" || bad "gate: git add . проскочил"
+vgc 'git add README.md src\b.py; git commit -m x' "$T" PowerShell | grep -q '"block"' \
+  && ok "gate: путь с обратным слэшем (src\\b.py) в git add понят" || bad "gate: код по пути с обратным слэшем проскочил"
+G "$T" add README.md; [ -z "$(vgc 'git commit -m x' "$T")" ] && ok "gate: решает добавленное (git diff --cached)" || bad "gate: добавленные документы заблокированы"
+G "$T" add a.py; vgc 'git commit -m x' "$T" | grep -q '"block"' && ok "gate: добавленный код — нужна проверка" || bad "gate: добавленный код проскочил"
+[ -z "$(vgc 'git commit -m x README.md' "$T")" ] && ok "gate: git commit <документ> сохраняет только его" || bad "gate: путь после commit не учтён"
+vgc "bash -c 'git commit -m x'" "$T" | grep -q '"block"' && ok "gate: неразобранная команда — по всей папке" || bad "gate: неразобранная команда прошла"
 if [ "$WIN" = 1 ]; then
   out=$(run verify-gate.py "$(J 'git commit -m x' "$(posix "$T")" | sed "s/^{/{\"session_id\":\"$SID\",/")" "$T")
   echo "$out" | grep -q '"block"' && ok "gate: папка в виде /c/Users/... понята (коммит без проверки блокируется)" || bad "gate: папка /c/Users/... не понята"
@@ -363,8 +378,10 @@ spec.loader.exec_module(m)
 print("ruff=" + (m.system_tool("ruff") or ""), "node=" + (m.system_tool("node") or ""))
 PY
 )
-lint() { run lint-after-edit.py "{\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$(jesc "$1")\"}}" "${2:-.}"; }
-T=$(mk)
+T=$(mk); O=$(mk)
+# lint <файл> — хук после правки; папка проекта — $T (как CLAUDE_PROJECT_DIR у Claude Code)
+lint() { printf '%s' "{\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$(jesc "$1")\"}}" \
+  | CLAUDE_PROJECT_DIR="$T" bash "$H/py.sh" "$HM/lint-after-edit.py"; }
 case "$PROBE" in *"node=/"*|*"node=C:"*|*"node=D:"*)
   echo "function (" > "$T/bad.js"; echo "const a = 1;" > "$T/ok.js"
   check 2 "lint: сломанный js ловится" lint "$(mixed "$T")/bad.js"
@@ -381,7 +398,13 @@ case "$PROBE" in *"ruff=/"*|*"ruff=C:"*|*"ruff=D:"*)
   printf 'import os\nprint(undefined_name)\n' > "$T/bad.py"; printf 'print("ok")\n' > "$T/good.py"
   check 2 "lint: ruff находит ошибку в .py" lint "$(mixed "$T")/bad.py"
   check 0 "lint: хороший .py проходит" lint "$(mixed "$T")/good.py"
-  [ "$WIN" = 1 ] && check 2 "lint: ruff читает путь файла C:\\Users\\..." lint "$(native "$T")\\bad.py" ;;
+  [ "$WIN" = 1 ] && check 2 "lint: ruff читает путь файла C:\\Users\\..." lint "$(native "$T")\\bad.py"
+  printf 'import sys\nimport os\nimport subprocess\nsubprocess.run(["ls"])\nprint(os.name, sys.argv)\n' > "$T/stil.py"
+  printf '[lint]\nselect = ["I", "PLW", "E", "F"]\n' > "$T/ruff.toml"  # проект просит строгий стиль — хук всё равно не блокирует
+  check 0 "lint: стиль (порядок импортов, check=) не останавливает" lint "$(mixed "$T")/stil.py"
+  printf 'def f(:\n    pass\n' > "$T/sintaksis.py"; cp "$T/sintaksis.py" "$O/vremennyi.py"
+  check 2 "lint: синтаксическая ошибка ловится" lint "$(mixed "$T")/sintaksis.py"
+  check 0 "lint: файл вне папки проекта (временный) не проверяется" lint "$(mixed "$O")/vremennyi.py" ;;
 *) skip "lint python (нет ruff в ~/.local/bin)" ;;
 esac
 # подложенные в проект программы не запускаются, из ~/.local/bin доверяем только ruff

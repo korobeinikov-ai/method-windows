@@ -6,7 +6,9 @@ Blocks `git commit` unless the session gathered verification evidence
 anthropics/cwc-long-running-agents verify-gate.sh.
 
 Allowed without evidence:
-- docs-only changes (.md/.txt/.yml/.yaml only)
+- docs-only commit (.md/.txt/.yml/.yaml only): judged by what this command really commits —
+  already staged files, `git add` in the same command, `-a`, paths after `git commit` — not by
+  the whole folder (unsaved code lying next to the docs does not block them)
 - explicit override: VERIFY_OK=1 in the command
 
 On allow, evidence is consumed so the next commit needs fresh proof.
@@ -15,6 +17,7 @@ Fail-open on any internal error.
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -35,22 +38,101 @@ def fix_cwd(path, win=os.name == "nt"):
     return path
 
 
-def changed_files(cwd):
-    git = gitfind.find_git(cwd)  # полный путь: голое имя на Windows запустило бы git.exe из папки проекта
-    if not git:
+# у этих ключей `git commit` значение — следующим словом (если не приклеено)
+COMMIT_VALUE = {"-m", "-F", "-C", "-c", "-t", "--message", "--file", "--template", "--author", "--date",
+                "--reuse-message", "--reedit-message", "--fixup", "--squash", "--trailer", "--cleanup"}
+
+
+def git(cwd, *args):
+    exe = gitfind.find_git(cwd)  # полный путь: голое имя на Windows запустило бы git.exe из папки проекта
+    if not exe:
         raise OSError("программа git не найдена в обычных местах")
     r = subprocess.run(
-        [git, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "status", "--porcelain"],
+        [exe, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", *args],
         check=False, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
         cwd=cwd or None,
     )
+    return r.stdout
+
+
+def changed_files(cwd, paths=()):
+    """Изменённое в папке (или только в paths), включая ещё не добавленное в git."""
     files = []
-    for line in r.stdout.splitlines():
+    paths = [p.replace("\\", "/") for p in paths]  # src\app.py из PowerShell — тот же путь для git
+    for line in git(cwd, "status", "--porcelain", "--untracked-files=all", "--", *paths).splitlines():
         p = line[3:]
         if " -> " in p:
             p = p.split(" -> ")[-1]
         files.append(p.strip().strip('"'))
     return files
+
+
+def commands(cmd):
+    """Простые команды из строки (bash или PowerShell): слова до && || ; | & и перенаправлений.
+    Не разобрал — ValueError."""
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    lex.escape = ""  # обратная черта на Windows — часть пути (src\app.py), а не экранирование
+    out, cur = [], []
+    for w in lex:
+        if w and all(ch in "&|;()<>" for ch in w):
+            out.append(cur)
+            cur = []
+        else:
+            cur.append(w)
+    return [*out, cur]
+
+
+def git_sub(words):
+    """('add'|'commit'|…, слова после него) для команды git (и git.exe по полному пути), иначе None."""
+    while words and re.match(r"^\w+=", words[0]):  # NAME=значение перед командой
+        words = words[1:]
+    if not words or re.split(r"[\\/]", words[0])[-1].lower() not in ("git", "git.exe"):
+        return None
+    i = 1
+    while i < len(words) and words[i].startswith("-"):
+        i += 2 if words[i] in ("-c", "-C") else 1
+    return (words[i].lower(), words[i + 1:]) if i < len(words) else None
+
+
+def committed_files(cmd, cwd):
+    """Что уйдёт в коммит этой командой: уже добавленное + `git add` до коммита в той же команде + `-a` (всё
+    изменённое из отслеживаемого); пути после `git commit` — только они. Не разобрал команду — None."""
+    files = set(git(cwd, "diff", "--cached", "--name-only").splitlines())
+    for words in commands(cmd):
+        sub = git_sub(words)
+        if not sub:
+            continue
+        name, args = sub
+        if name == "add":
+            files |= set(changed_files(cwd, [a for a in args if not a.startswith("-")]))
+        elif name == "commit":
+            vse, dobavit, puti, skip, konets = False, False, [], False, False
+            for a in args:
+                if skip:
+                    skip = False
+                elif konets or not a.startswith("-") or a == "-":
+                    puti.append(a)
+                elif a == "--":
+                    konets = True
+                elif a.startswith("--"):
+                    vse |= a == "--all"
+                    dobavit |= a == "--include"
+                    skip = a in COMMIT_VALUE
+                else:  # склеенные короткие: -am "текст", -mтекст
+                    for j, ch in enumerate(a[1:], 1):
+                        vse |= ch == "a"
+                        dobavit |= ch == "i"
+                        if ch in "mFCct":
+                            skip = j == len(a) - 1
+                            break
+            if vse:
+                files |= set(git(cwd, "diff", "--name-only").splitlines())
+            if puti:
+                tolko = set(changed_files(cwd, puti))
+                files = files | tolko if dobavit else tolko
+            return {f for f in files if f}
+    return None
 
 
 def main():
@@ -64,7 +146,13 @@ def main():
         return 0
 
     try:
-        files = changed_files(fix_cwd(data.get("cwd")))
+        cwd = fix_cwd(data.get("cwd"))
+        try:
+            files = committed_files(cmd, cwd)
+        except ValueError:  # кавычки не сошлись — команду не разобрать
+            files = None
+        if files is None:  # не видно, что сохраняется, — по всей папке, как раньше
+            files = changed_files(cwd)
         if files and all(f.lower().endswith(DOCS_ONLY) for f in files):
             return 0
         log = Path(tempfile.gettempdir()) / f"claude-verify-{data.get('session_id') or 'default'}.log"

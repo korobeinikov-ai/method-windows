@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """PostToolUse hook: auto-lint a file right after Claude edits/writes it.
 
-.py  -> ruff check (bugs + style, no formatting noise)
+.py  -> ruff check, only what breaks at run time (RUNTIME_RULES): syntax, undefined names,
+        break/return outside place. Style (import order, `check=` and the like) never stops work.
 .js/.mjs/.cjs -> node --check (syntax only)
 .ts/.tsx -> tsc single-file syntax check (no type resolution)
+
+Only files inside the project folder (CLAUDE_PROJECT_DIR, else the session folder) are checked:
+temporary and foreign files elsewhere are skipped.
 
 Only linters installed in trusted system folders are run (Windows: Program Files\\nodejs; on
 Mac/Linux for local checks: /opt/homebrew, /usr/local, /usr/bin, /bin), plus ruff from ~/.local/bin,
@@ -47,6 +51,10 @@ USER_BIN = os.path.realpath(os.path.join(HOME, ".local", "bin"))
 CLEAN_ENV = {"PATH": CLEAN_PATH, "HOME": os.environ.get("HOME", ""), "LANG": "en_US.UTF-8"}
 if IS_WIN:
     CLEAN_ENV["SYSTEMROOT"] = os.environ.get("SYSTEMROOT", "")  # без неё программы Windows не стартуют
+# Только то, что упадёт при запуске (классический набор «ломает сборку» flake8): E9 — файл не читается, F63 —
+# сравнения-ловушки (`x is 1`, assert на кортеж), F7 — break/continue/return/yield не на месте, F82 — неопределённые
+# имена. Синтаксические ошибки ruff показывает всегда. Стиль не останавливает: настройки проекта тут не важны.
+RUNTIME_RULES = "E9,F63,F7,F82"
 
 
 def win_path(path, win=IS_WIN):
@@ -90,6 +98,14 @@ def system_tool(name):
     return found
 
 
+def in_project(path, data):
+    """Файл внутри папки проекта (на Windows без учёта регистра). Папки не знаем — проверяем, как раньше."""
+    root = win_path(os.environ.get("CLAUDE_PROJECT_DIR") or data.get("cwd") or "")
+    if not root:
+        return True
+    return under(os.path.realpath(path), os.path.realpath(root))
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -98,12 +114,13 @@ def main():
         return 0
 
     path = win_path((data.get("tool_input") or {}).get("file_path", ""))
-    if not path:
-        return 0
+    if not path or not in_project(path, data):
+        return 0  # временные и чужие файлы вне проекта не проверяем
     low = path.lower()  # на Windows файл бывает a.PY
 
     if low.endswith(".py"):
-        tool, args = system_tool("ruff"), ["check", "--quiet", "--no-cache", os.path.abspath(path)]
+        tool, args = system_tool("ruff"), ["check", "--quiet", "--no-cache", "--output-format", "concise",
+                                           "--select", RUNTIME_RULES, os.path.abspath(path)]
     elif low.endswith((".js", ".mjs", ".cjs")):
         tool, args = system_tool("node"), ["--check", os.path.abspath(path)]
     elif low.endswith((".ts", ".tsx", ".mts", ".cts")):
