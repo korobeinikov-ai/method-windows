@@ -14,6 +14,8 @@
 #   METHOD_LOCAL_DIR — взять пакет метода из этой папки, а не со склада метода;
 #   METHOD_NO_LAUNCH — всё поставить, но Claude не запускать;
 #   METHOD_BEZ_WINGET — ставить Git и Python так, будто winget нет (запасной путь).
+# С личной ссылкой изнутри Claude в конце (и при обрыве) автору сам уходит отчёт об установке — только техника,
+# как на Mac: итог, строки ✅/⚠️/❌, система, версии, время (см. Send-Otchet).
 & {
     $ErrorActionPreference = 'Continue'
     $ProgressPreference = 'SilentlyContinue'
@@ -34,16 +36,95 @@
     }
     if ($S.Vnutri) { $S.NoRun = $true }
     $S.Paket = 'osnova@' + $S.Polka
+    # Отчёт об установке: по личной ссылке (она известна с начала — отчёт дойдёт и при обрыве до ключа), только изнутри
+    # Claude. Без ссылки не уходит: некому приписать. Не ушёл — строка в stderr, установка и её итог не меняются.
+    $S.Log = New-Object System.Collections.Generic.List[string]
+    $S.Nachalo = Get-Date
+    $S.Konets = $false
+    $S.Otchet = $null
+    if ($S.Vnutri -and $env:METHOD_DOSTUP -and
+        $env:METHOD_DOSTUP.Trim() -match '^https://(metod\.korobeinikov\.ai|korobeinikov-ai\.up\.railway\.app)/u/([A-Za-z0-9_-]+)$') {
+        $S.Otchet = $Matches[2]
+    }
     $S.Bin = Join-Path $S.Home '.local\bin'
     $S.Work = Join-Path $S.Home 'vibecoding'
 
-    function Say($text) { Write-Host $text }
+    function Say($text) { Write-Host $text; [void]$S.Log.Add([string]$text) }  # на экран и в отчёт
+
+    # Домашняя папка и имя пользователя → «~», похожее на ключ или ссылку → звёздочки; строки — до $n букв.
+    function Clean-Otchet($lines, $n) {
+        @($lines | ForEach-Object {
+            $t = [string]$_
+            $t = [regex]::Replace($t, '(?i)(?:[A-Z]:|/[a-z])?[\\/]Users[\\/][^\\/\s]+', '~')
+            if ($env:USERNAME.Length -ge 3) { $t = [regex]::Replace($t, '(?i)' + [regex]::Escape($env:USERNAME), '~') }
+            $t = [regex]::Replace($t, 'kai_[A-Za-z0-9_-]{10,}', 'kai_***')
+            $t = [regex]::Replace($t, '/u/[A-Za-z0-9_-]{20,}', '/u/***')
+            if ($t.Length -gt $n) { $t = $t.Substring(0, $n) }
+            $t
+        }) -join "`n"
+    }
+
+    # Отчёт автору: итог, где споткнулась, строки проверок, система, версии, время; при обрыве — конец вывода, только
+    # если сторож секретов есть и пропустил. Состав — как у установщика Mac.
+    function Send-Otchet {
+        $kod = $global:LASTEXITCODE
+        try {
+            $lines = @($S.Log | ForEach-Object { [string]$_ })
+            # без входа в GitHub — обычное дело, не замечание
+            $zam = @($lines | Where-Object { $_ -match '^(⚠|❌|ДОСТУП: ❌)' -and $_ -notmatch 'входа в GitHub' })
+            if (-not $S.Konets) {
+                $itog = 'oborvalas'
+                $mesto = @($lines | Where-Object { $_ -match '^❌' } | Select-Object -Last 1)
+                if (-not $mesto) { $mesto = '❌ прервана после: ' + @($lines | Where-Object { $_ -match '^✅' } | Select-Object -Last 1) }
+            } elseif ($zam.Count -gt 0) { $itog = 'preduprezhdeniya'; $mesto = $zam[0] }
+            else { $itog = 'uspeh'; $mesto = '' }
+            $mesto = Clean-Otchet ((([string]$mesto) -split ' → ')[0]) 190
+            $stroki = Clean-Otchet @($lines | Where-Object { $_ -match '^(✅|⚠|❌|ДОСТУП|ИТОГ)' } | Select-Object -First 25) 150
+            $hvost = ''
+            $gl = Join-Path $S.Bin 'gitleaks.exe'
+            if (Test-Path -LiteralPath $gl) {
+                $a = @('stdin', '--no-banner', '--redact')
+                if ($S.Root -and (Test-Path (Join-Path $S.Root 'skelet\.gitleaks.toml'))) { $a += @('--config', (Join-Path $S.Root 'skelet\.gitleaks.toml')) }
+                $global:LASTEXITCODE = 1
+                $stroki | & $gl @a *> $null
+                if ($LASTEXITCODE -ne 0) { $stroki = '(строки убраны: сторож секретов не пропустил)' }
+                if ($itog -eq 'oborvalas') {
+                    $hvost = Clean-Otchet @($lines | Where-Object { $_.Trim() } | Select-Object -Last 12) 150
+                    $global:LASTEXITCODE = 1
+                    $hvost | & $gl @a *> $null
+                    if ($LASTEXITCODE -ne 0) { $hvost = '' }
+                }
+            }
+            $sistema = '?'
+            try {
+                $v = [Version](Get-CimInstance Win32_OperatingSystem).Version
+                $sistema = 'Windows {0} ({1})' -f $(if ($v.Build -ge 22000) { '11' } else { '10' }), $v
+            } catch { [Console]::Error.WriteLine('Отчёт об установке: версию Windows не узнал, шлю без неё.') }
+            $paket = '?'
+            if ($S.Root -and (Split-Path $S.Root -Leaf) -match '^[0-9a-f]{7,40}$') { $paket = Split-Path $S.Root -Leaf }
+            $cc = '?'
+            if ($S.Claude) {
+                $o = (& $S.Claude --version 2>$null | Out-String).Trim()
+                if ($o -match '^([0-9][0-9.]*)') { $cc = $Matches[1] }
+            }
+            $pary = [ordered]@{ os = 'windows'; itog = $itog; shag = $mesto; stroki = $stroki; hvost = $hvost; sistema = $sistema
+                arh = [string]$env:PROCESSOR_ARCHITECTURE; paket = $paket; claude = $cc
+                sekund = [string][int]((Get-Date) - $S.Nachalo).TotalSeconds }
+            $telo = @($pary.GetEnumerator() | ForEach-Object { $_.Key + '=' + [Uri]::EscapeDataString([string]$_.Value) }) -join '&'
+            $null = Invoke-WebRequest -UseBasicParsing -Method Post -TimeoutSec 10 -Body $telo -ContentType 'application/x-www-form-urlencoded' `
+                -Uri ('https://metod.korobeinikov.ai/u/' + $S.Otchet + '/otchet') -ErrorAction Stop
+            Write-Host 'Отчёт об установке ушёл автору: только техника, без данных человека.'
+        } catch {
+            [Console]::Error.WriteLine("Отчёт об установке автору не ушёл ($($_.Exception.Message)) — установке не мешает, ничего делать не нужно.")
+        }
+        $global:LASTEXITCODE = $kod
+    }
 
     # Как запустить снова. Изнутри Claude это читает Claude: человеку команд не показываем.
     function Say-Again {
         if ($S.Vnutri) {
             Write-Host 'ДЛЯ CLAUDE: почини сам и запусти подготовку ещё раз той же командой — что уже стоит, она не тронет. Человеку команд не показывай.'
-            Write-Host 'ИТОГ: ❌ подготовка остановилась на строке выше.'
+            Say 'ИТОГ: ❌ подготовка остановилась на строке выше.'
             return
         }
         Write-Host 'Потом нажмите стрелку вверх и Enter или вставьте эту строку ещё раз. Что уже поставилось, она не тронет:'
@@ -56,6 +137,7 @@
     function Stop-Install($what, $do) {
         Write-Host ''
         Write-Host "❌ $what" -ForegroundColor Red
+        [void]$S.Log.Add("❌ $what")
         Write-Host "Что делать: $do"
         Write-Host ''
         Say-Again
@@ -420,18 +502,19 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
                     Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
             }
             if (-not $root -or -not (Test-Path (Join-Path $root 'skills\start\SKILL.md'))) { Stop-Install 'Пакет стоит, но его папки нет на диске.' 'запустите подготовку ещё раз.' }
+            $S.Root = $root  # для отчёта: версия пакета (имя папки) и правила сторожа секретов
             $u = { param($p) $p -replace '\\', '/' }  # пути Windows с прямыми слешами понимают и Git Bash, и PowerShell
             $start = & $u (Join-Path $root 'skills\start')
             $py = & $u (Join-Path $root 'hooks\py.sh')
             $data = & $u (Join-Path $S.Home ".claude\plugins\data\osnova-$($S.Polka)")
 
-            & $bash "$start/instrumenty.sh" 2>&1 | ForEach-Object { "$_" } | Out-Host
+            & $bash "$start/instrumenty.sh" 2>&1 | ForEach-Object { Say "$_" }
             if ($LASTEXITCODE -ne 0) { $bad = $true }
-            & $bash $py "$start/nastroyki.py" obnovleniya 2>&1 | ForEach-Object { "$_" } | Out-Host
+            & $bash $py "$start/nastroyki.py" obnovleniya 2>&1 | ForEach-Object { Say "$_" }
             if ($LASTEXITCODE -ne 0) { $bad = $true }
             # Базовый метод из наборов автора в личных инструкциях Claude: полный метод его заменяет — блок убираем.
             # Сбой здесь установку не останавливает: скрипт сам пишет строку ⚠️ для Claude.
-            & $bash "$start/baza.sh" (& $u (Join-Path $S.Home '.claude\CLAUDE.md')) 2>&1 | ForEach-Object { "$_" } | Out-Host
+            & $bash "$start/baza.sh" (& $u (Join-Path $S.Home '.claude\CLAUDE.md')) 2>&1 | ForEach-Object { Say "$_" }
 
             # Личный доступ: одноразовая ссылка из бота. Ключ сервер отдаёт только самому запуску и сразу в закрытый файл.
             if ($env:METHOD_DOSTUP) {
@@ -448,7 +531,7 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
                         $body = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8)
                         [IO.File]::WriteAllText($f, $body, (New-Object System.Text.UTF8Encoding $true))
                         $global:LASTEXITCODE = 1
-                        powershell.exe -NoProfile -ExecutionPolicy Bypass -File $f 2>&1 | ForEach-Object { "$_" } | Out-Host
+                        powershell.exe -NoProfile -ExecutionPolicy Bypass -File $f 2>&1 | ForEach-Object { Say "$_" }
                         if ($LASTEXITCODE -ne 0) { Say 'ДОСТУП: ❌ не подключился (причина строкой выше), остальное поставлено' }
                     } else {
                         Say "ДОСТУП: ❌ сервер метода не ответил ($kod) — запусти подготовку ещё раз через минуту"
@@ -461,7 +544,7 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
 
             Say ''
             Say 'Проверка:'
-            & $bash "$start/proverka.sh" 2>&1 | ForEach-Object { "$_" } | Out-Host
+            & $bash "$start/proverka.sh" 2>&1 | ForEach-Object { Say "$_" }
             if ($LASTEXITCODE -ne 0) { $bad = $true }
             Say ''
             Say ('BASH=' + (& $u $bash))
@@ -474,6 +557,7 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
         }
 
         Say ''
+        $S.Konets = $true  # дошли до конца: отчёт считает итог по строкам ⚠️/❌, а не «оборвалась»
         if ($S.Vnutri -and $bad) {
             Say 'ИТОГ: ❌ есть строки с ❌ выше — почини по подсказке и запусти подготовку ещё раз.'
         } elseif ($S.Vnutri) {
@@ -504,8 +588,11 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
         if ($_.Exception.Message -ne 'METHOD_STOP') {
             Write-Host ''
             Write-Host "❌ Что-то пошло не так: $($_.Exception.Message) (строка $($_.InvocationInfo.ScriptLineNumber))" -ForegroundColor Red
+            [void]$S.Log.Add("❌ Что-то пошло не так: $($_.Exception.Message)")
             Say-Again
         }
         $global:LASTEXITCODE = 1
+    } finally {
+        if ($S.Otchet) { Send-Otchet }
     }
 }

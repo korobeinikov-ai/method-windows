@@ -27,6 +27,8 @@ PowerShell-скрипт с сервера кладёт ключ в `~/.config/ko
 ## Главные файлы
 - `README.md` — страница для людей: три шага установки. `CLAUDE.md` — инструкция Claude, если человек просит поставить метод.
 - `install.ps1` — подготовка с чистой машины (Windows PowerShell 5.1 и 7); повторный запуск ничего не меняет.
+  Изнутри Claude с личной ссылкой в конце (и при обрыве) сама шлёт автору отчёт об установке — тот же, что на Mac:
+  итог, строки ✅/⚠️/❌, система, версии, время (`POST https://metod.korobeinikov.ai/u/<ссылка>/otchet`, с 25.11).
   Без Claude (обычное окно PowerShell) ставит и запускает Claude сам.
 - `.claude-plugin/marketplace.json` — полка `korobeinikov-ai-windows`: `osnova` и `stroka`. На складе выпуск делает из неё
   каталог на архивы.
@@ -44,7 +46,8 @@ PowerShell-скрипт с сервера кладёт ключ в `~/.config/ko
   мастерской), рядом свои скрипты под Windows: `railway/klyuch.py` (ключи через буфер обмена и stdin), шаблон бота на aiogram.
 - `plugins/stroka/` — строка над полем ввода в приложении: копия Mac-версии, от системы не зависит.
 - `tests/` — `test-hooks.sh`, `test-klyuchi.sh`, `test-provodnik.sh`, `test-shablon.sh`, `test-teksty.sh`, `test-znaniya.sh`,
-  `test-ustanovka.ps1`; `sklad.py` — склад метода на машине проверки (сборка из этой папки, HTTPS с адресами домена).
+  `test-ustanovka.ps1`; `sklad.py` — склад метода на машине проверки (сборка из этой папки, HTTPS с адресами домена;
+  принимает отчёт об установке строкой `OTCHET:` в журнал, ссылке на `sboy` отвечает 503 — проверка сбоя отправки).
 
 ## Как проверять
 Главная мерка — прогон на настоящей Windows: `.github/workflows/windows.yml` (windows-latest) идёт на каждый push.

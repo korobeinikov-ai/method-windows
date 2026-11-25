@@ -7,15 +7,19 @@
 инструкция, установщик и страница. Отдаёт по HTTPS на порту 443 теми же адресами и заголовками, что сервер метода.
 Домен сюда ведёт запись в hosts (её делает проверка), сертификат проверка делает доверенным. Ещё отдаёт
 /windows/plohoy.json — тот же каталог с неверной sha256: Claude Code должен отказаться ставить из него.
-Остальные адреса — 404. Журнал запросов — в stderr или дописывается в файл ЖУРНАЛ: по нему видно, что Claude Code
+Принимает отчёт об установке, как сервер метода (POST /u/<ссылка>/otchet): поля формы — строкой «OTCHET: {json}» в журнал
+(по ней проверка сверяет отчёт), ответ 200; ссылка начинается с «sboy» — ответ 503 (проверка: сбой отправки установку не
+ломает). Остальные адреса — 404. Журнал запросов — в stderr или дописывается в файл ЖУРНАЛ: по нему видно, что Claude Code
 брал архивы отсюда.
 """
 import hashlib
 import http.server
 import io
 import json
+import re
 import ssl
 import sys
+import urllib.parse
 import zipfile
 from pathlib import Path
 
@@ -74,6 +78,17 @@ def main(repo, cert, key, zhurnal=None):
 
         def do_HEAD(self):
             self.otvet(telo=False)
+
+        def do_POST(self):
+            m = re.fullmatch(r"/u/([A-Za-z0-9_-]+)/otchet", self.path)
+            telo = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8", "replace")
+            kod = 404 if not m else 503 if m[1].startswith("sboy") else 200
+            if kod == 200:
+                pola = {k: v[0] for k, v in urllib.parse.parse_qs(telo, keep_blank_values=True).items()}
+                print("OTCHET: " + json.dumps({**pola, "_put": self.path}), flush=True)
+            self.send_response(kod)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
     s = http.server.ThreadingHTTPServer(("0.0.0.0", 443), H)
     c = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

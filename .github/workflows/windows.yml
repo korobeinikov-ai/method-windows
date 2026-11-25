@@ -232,6 +232,21 @@ jobs:
           # The settings block and the check reach Claude too
           if ($out -notmatch '\u041e\u0445\u0440\u0430\u043d\u0430 \u0441\u0435\u043a\u0440\u0435\u0442\u043e\u0432 \u0441\u0440\u0430\u0431\u0430\u0442\u044b\u0432\u0430\u0435\u0442') { 'the guard check is not in the output'; exit 1 }
           Remove-Item Env:METHOD_DOSTUP -ErrorAction SilentlyContinue
+          # The install report went by the personal link to the sklad (the domain leads here): technical fields only,
+          # no home folder, no user name. The refused link = "with warnings", the place = the reason ("srabotala").
+          if (-not $env:S_DOMENA) {
+              $line = @(Get-Content -Encoding UTF8 (Join-Path $env:RUNNER_TEMP 'sklad.log') | Where-Object { $_.StartsWith('OTCHET: ') } | Select-Object -Last 1)
+              if (-not $line) { 'no install report reached the sklad'; exit 1 }
+              $r = $line[0].Substring(8) | ConvertFrom-Json
+              $r | Format-List | Out-String
+              if ($r._put -ne '/u/netakoyssylki123/otchet' -or $r.os -ne 'windows' -or $r.itog -ne 'preduprezhdeniya') { 'report: wrong link, os or result'; exit 1 }
+              if ($r.stroki -notmatch '\u0414\u041e\u0421\u0422\u0423\u041f: \u274c' -or $r.shag -notmatch '\u0441\u0440\u0430\u0431\u043e\u0442\u0430\u043b\u0430') { 'report: no access line or place'; exit 1 }
+              if ($r.sistema -notmatch '^Windows 1[01] \(10\.0\.\d+\)$' -or $r.paket -notmatch '^[0-9a-f]{12}$' -or $r.claude -notmatch '^\d' -or $r.sekund -notmatch '^\d+$') { 'report: system or versions'; exit 1 }
+              $all = [string]$r.shag + [string]$r.stroki + [string]$r.hvost
+              if ($all -match [regex]::Escape($env:USERNAME) -or $all -match '(?i)[A-Z]:[\\/]Users') { 'report: home folder or user name in it'; exit 1 }
+              # "Otchet ob ustanovke ushel" - the person sees that the report went
+              if ($out -notmatch '\u041e\u0442\u0447\u0451\u0442 \u043e\u0431 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0435 \u0443\u0448\u0451\u043b') { 'no line about the sent report'; exit 1 }
+          }
           # Paths for the next steps, like Claude reads them: BASH, PY, PROVODNIK, DANNYE
           $P = -join [char[]](0x41F, 0x420, 0x41E, 0x412, 0x41E, 0x414, 0x41D, 0x418, 0x41A)
           $D = -join [char[]](0x414, 0x410, 0x41D, 0x41D, 0x42B, 0x415)
@@ -260,6 +275,26 @@ jobs:
           Pop-Location
           if ($hook -notmatch 'uchet prodazh') { $hook; 'the next session does not know the task'; exit 1 }
           'install chat: refused a foreign link, applied settings, created the project, the next session knows the task'
+          exit 0
+
+      - name: Отчёт об установке не ушёл - установка и её код те же
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && !env.S_DOMENA }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          . (Join-Path $env:RUNNER_TEMP 'fresh.ps1')
+          $h = Join-Path $env:RUNNER_TEMP 'sklad-zhiv.ps1'; if (Test-Path $h) { . $h }  # the stand-in sklad answers
+          $env:CLAUDE_CODE_EXECPATH = (Get-Command claude -ErrorAction SilentlyContinue).Source
+          Remove-Item Env:METHOD_NO_LAUNCH -ErrorAction SilentlyContinue
+          # The stand-in sklad answers 503 to reports of links that start with "sboy"
+          $env:METHOD_DOSTUP = 'https://metod.korobeinikov.ai/u/sboyotcheta123'
+          $out = powershell -NoProfile -ExecutionPolicy Bypass -Command 'irm https://metod.korobeinikov.ai/windows/install.ps1 | iex; exit $LASTEXITCODE' 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          $out
+          Remove-Item Env:METHOD_DOSTUP -ErrorAction SilentlyContinue
+          if ($code -ne 0) { 'the install exit code changed: ' + $code; exit 1 }
+          if ($out -notmatch '\u0418\u0422\u041e\u0413: \u2705') { 'no ok result line'; exit 1 }
+          if ($out -notmatch '503') { 'the failed report is not on stderr'; exit 1 }
+          'a failed report does not change the install'
           exit 0
 
       - name: Новая схема - каталог и архивы с домена, sha256, распаковка, настройки автообновления
