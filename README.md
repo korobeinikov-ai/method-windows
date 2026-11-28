@@ -25,7 +25,7 @@ https://raw.githubusercontent.com/korobeinikov-ai/method/main/CLAUDE.md
 3. **Вставьте в поле ввода текст и нажмите Enter:**
 
 ```
-Поставь метод Коробейникова с https://github.com/korobeinikov-ai/method-windows — прочитай целиком инструкцию для тебя https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/CLAUDE.md и коротко расскажи, что поставишь. После моего «да» ставь.
+Поставь метод KOROBEINIKOV AI с https://github.com/korobeinikov-ai/method-windows — прочитай целиком инструкцию для тебя https://raw.githubusercontent.com/korobeinikov-ai/method-windows/main/CLAUDE.md и коротко расскажи, что поставишь. После моего «да» ставь.
 ```
 
 Дальше Claude ведёт сам. От вас — несколько кнопок и ответов:
