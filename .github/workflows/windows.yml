@@ -149,13 +149,23 @@ jobs:
           if (-not $c) { 'claude is missing'; exit 1 }
           $env:CLAUDE_CODE_EXECPATH = $c
           Remove-Item Env:METHOD_NO_LAUNCH -ErrorAction SilentlyContinue
-          # A base method block from the kits (CRLF, as Windows editors write it): the install removes only the block
+          # A base method block from the kits (CRLF, as Windows editors write it): the install only finds it,
+          # baza.sh removes only the block, on the person's "yes"
           $cm = Join-Path $env:USERPROFILE '.claude\CLAUDE.md'
           $own = "# my rules`r`nbe short`r`n"
-          [IO.File]::WriteAllText($cm, $own + "`r`n<!-- korobeinikov-ai-baza:start v1 -->`r`nbase rules`r`n<!-- korobeinikov-ai-baza:end -->`r`n")
+          $with = $own + "`r`n<!-- korobeinikov-ai-baza:start v1 -->`r`nbase rules`r`n<!-- korobeinikov-ai-baza:end -->`r`n"
+          [IO.File]::WriteAllText($cm, $with)
           $out = Get-Content install.ps1 -Raw -Encoding UTF8 | Invoke-Expression *>&1 | Out-String
           $out
-          if ([IO.File]::ReadAllText($cm) -ne $own) { 'base method block not removed or own lines changed'; exit 1 }
+          if ([IO.File]::ReadAllText($cm) -ne $with) { 'the install changed CLAUDE.md by itself'; exit 1 }
+          # "BAZOVYI METOD" line reaches Claude
+          if ($out -notmatch '\u0411\u0410\u0417\u041e\u0412\u042b\u0419 \u041c\u0415\u0422\u041e\u0414') { 'no base method line'; exit 1 }
+          $P = -join [char[]](0x41F, 0x420, 0x41E, 0x412, 0x41E, 0x414, 0x41D, 0x418, 0x41A)
+          $m = @{}
+          foreach ($l in ($out -split "`r?`n")) { if ($l -match '^([^=\s]+)=(.+)$') { $m[$Matches[1]] = $Matches[2].Trim() } }
+          if (-not $m['BASH'] -or -not $m[$P]) { 'no paths in the output'; exit 1 }
+          & $m['BASH'] ($m[$P] + '/baza.sh') ($cm -replace '\\', '/') | Out-Host
+          if ([IO.File]::ReadAllText($cm) -ne $own) { 'baza.sh did not remove the block or changed own lines'; exit 1 }
           if (-not (Get-ChildItem (Split-Path $cm) -Filter 'CLAUDE.md.bak-korobeinikov-*')) { 'no backup of CLAUDE.md'; exit 1 }
           Remove-Item $cm, (Join-Path (Split-Path $cm) 'CLAUDE.md.bak-korobeinikov-*') -ErrorAction SilentlyContinue
           # Russian words as regex escapes: this script stays ASCII. "Stavlyu Claude" = it tried to install Claude

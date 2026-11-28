@@ -157,7 +157,7 @@ printf '# Мои правила\r\nговори на ты\r\n' > "$ROOT_T/svoe"
 cmp -s "$K" "$ROOT_T/svoe" && ok "базовый метод: CRLF и черновик без версии — своё цело байт в байт" || bad "базовый метод: CRLF или черновик"
 rm -f "$K".bak-korobeinikov-*
 printf 'своё\n%s\nбез конца\n' "$BS" > "$K"; cp "$K" "$ROOT_T/do"; out=$(BZ)
-cmp -s "$K" "$ROOT_T/do" && [ "$(nbak)" = 0 ] && echo "$out" | grep -q "ДЛЯ CLAUDE" \
+cmp -s "$K" "$ROOT_T/do" && [ "$(nbak)" = 0 ] && echo "$out" | grep -q "сломаны — не трогаю" \
   && ok "базовый метод: метки сломаны — файл не тронут, Claude скажет" || bad "базовый метод: сломанные метки"
 printf 'про метку korobeinikov-ai-baza:start пишу словами\n' > "$K"; cp "$K" "$ROOT_T/do"; out=$(BZ)
 cmp -s "$K" "$ROOT_T/do" && [ -z "$out" ] && [ "$(nbak)" = 0 ] \

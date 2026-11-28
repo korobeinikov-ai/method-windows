@@ -8,8 +8,11 @@
 # Повторный запуск безопасен: что уже стоит, не трогает; чужие настройки только дописывает.
 # Файл без BOM и с переводами строк LF: так его читает и `irm | iex` в Windows PowerShell 5.1, и PowerShell 7.
 # Всё внутри одного блока: оборвётся скачивание — не выполнится половина, а окно человека не засоряется функциями.
-# Изнутри Claude ещё подключает личный доступ (METHOD_DOSTUP — ссылка из бота), ставит программы пакета, проверяет охрану
-# и печатает пути проводника: знакомство и проект Claude ведёт в том же чате (инструкция CLAUDE.md).
+# Изнутри Claude ещё ставит программы пакета, включает автообновление пакета, проверяет охрану и печатает пути проводника:
+# знакомство и проект Claude ведёт в том же чате (инструкция CLAUDE.md). Обычно без прав администратора (последний запасной
+# способ для Git и Python — winget для всех, с окном Windows); обращается только к GitHub, python.org, winget и claude.ai
+# (Claude — только если его нет). Личные инструкции Claude (~\.claude\CLAUDE.md)
+# не меняет: блок прежнего набора автора только находит, убирает его skills/start/baza.sh с «да» человека.
 # Переменные только для проверок (человеку не видны):
 #   METHOD_LOCAL_DIR — взять пакет метода из этой папки, а не с GitHub (так проверяет CI);
 #   METHOD_NO_LAUNCH — всё поставить, но Claude не запускать;
@@ -39,10 +42,10 @@
 
     function Say($text) { Write-Host $text }
 
-    # Как запустить снова. Изнутри Claude это читает Claude: человеку команд не показываем.
+    # Как запустить снова. Изнутри Claude это читает Claude: после «→» — подсказка, что сделать.
     function Say-Again {
         if ($S.Vnutri) {
-            Write-Host 'ДЛЯ CLAUDE: почини сам и запусти подготовку ещё раз той же командой — что уже стоит, она не тронет. Человеку команд не показывай.'
+            Write-Host '→ почини и запусти подготовку ещё раз той же командой: что уже стоит, она не тронет.'
             Write-Host 'ИТОГ: ❌ подготовка остановилась на строке выше.'
             return
         }
@@ -429,33 +432,11 @@ print("changed: " + ", ".join(changed) if changed else "unchanged")
             if ($LASTEXITCODE -ne 0) { $bad = $true }
             & $bash $py "$start/nastroyki.py" obnovleniya 2>&1 | ForEach-Object { "$_" } | Out-Host
             if ($LASTEXITCODE -ne 0) { $bad = $true }
-            # Базовый метод из наборов автора в личных инструкциях Claude: полный метод его заменяет — блок убираем.
-            # Сбой здесь установку не останавливает: скрипт сам пишет строку ⚠️ для Claude.
-            & $bash "$start/baza.sh" (& $u (Join-Path $S.Home '.claude\CLAUDE.md')) 2>&1 | ForEach-Object { "$_" } | Out-Host
-
-            # Личный доступ: одноразовая ссылка из бота. Ключ сервер отдаёт только самому запуску и сразу в закрытый файл.
-            if ($env:METHOD_DOSTUP) {
-                $d = $env:METHOD_DOSTUP.Trim()
-                Remove-Item Env:METHOD_DOSTUP -ErrorAction SilentlyContinue  # ссылка одноразовая: повтор подготовки её не тратит
-                if ($d -match '^https://korobeinikov-ai\.up\.railway\.app/u/[A-Za-z0-9_-]+$') {
-                    # 200 — скрипт доступа, 410 — скрипт с причиной отказа («уже сработала, устарела…»); остальное не запускаем.
-                    # Отдельным окном PowerShell: скрипт заканчивается exit. Файл с BOM — так русский текст читает и PowerShell 5.1.
-                    $f = Join-Path ([IO.Path]::GetTempPath()) 'metod-dostup.ps1'
-                    $kod = & "$env:SystemRoot\System32\curl.exe" -sS --max-time 60 -o $f -w '%{http_code}' ($d + '?os=windows') 2>&1 | Out-String
-                    $kod = $kod.Trim()
-                    if (($kod -eq '200' -or $kod -eq '410') -and (Test-Path -LiteralPath $f)) {
-                        $body = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8)
-                        [IO.File]::WriteAllText($f, $body, (New-Object System.Text.UTF8Encoding $true))
-                        $global:LASTEXITCODE = 1
-                        powershell.exe -NoProfile -ExecutionPolicy Bypass -File $f 2>&1 | ForEach-Object { "$_" } | Out-Host
-                        if ($LASTEXITCODE -ne 0) { Say 'ДОСТУП: ❌ не подключился (причина строкой выше), остальное поставлено' }
-                    } else {
-                        Say "ДОСТУП: ❌ сервер метода не ответил ($kod) — запусти подготовку ещё раз через минуту"
-                    }
-                    Remove-Item -LiteralPath $f -ErrorAction SilentlyContinue
-                } else {
-                    Say 'ДОСТУП: ❌ это не ссылка из бота метода — попроси человека прислать текст из бота ещё раз'
-                }
+            # Базовый метод из наборов автора в личных инструкциях Claude: полный метод его заменяет, но это личный файл
+            # человека — здесь только находим блок, убирает его baza.sh с «да» (шаг 4 инструкции).
+            $cm = Join-Path $S.Home '.claude\CLAUDE.md'
+            if ((Test-Path -LiteralPath $cm) -and (Select-String -LiteralPath $cm -SimpleMatch '<!-- korobeinikov-ai-baza:start' -Quiet)) {
+                Say "⚠️ БАЗОВЫЙ МЕТОД: в личных инструкциях Claude ($cm) есть блок правил прежнего набора автора → предложи человеку убрать его; с «да» — baza.sh из папки ПРОВОДНИК, путь к файлу: $(& $u $cm)"
             }
 
             Say ''
